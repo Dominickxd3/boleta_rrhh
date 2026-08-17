@@ -1,0 +1,15 @@
+{
+  "name": "boleta-rrhh",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm run start:dev --workspace @boleta/api",
+    "dev:frontend": "npm run dev --workspace @boleta/web",
+    "build:backend": "npm run build --workspace @boleta/api",
+    "build:frontend": "npm run build --workspace @boleta/web",
+    "start:backend": "npm run start:prod --workspace @boleta/api"
+  }
+}
