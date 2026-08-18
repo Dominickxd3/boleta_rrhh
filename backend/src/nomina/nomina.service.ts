@@ -27,6 +27,7 @@ export interface DetalleNomina {
   regimenPensionario: string;
   cuspp: string;
   centroCostos: string;
+  ocupacion: string;
   tipoTrabajador: string;
   condicion: string;
   otrosEmpRta5ta: string;
@@ -38,6 +39,8 @@ export interface DetalleNomina {
   diasNL: number;
   diasSub: number;
   horasExtra: number;
+  minutos: number;
+  minutosSob: number;
   formaPago: string;
   categoria: string;
   periodoPlanilla: string;
@@ -46,6 +49,7 @@ export interface DetalleNomina {
   cargoRepresentante: string;
   ingresos: ConceptoItem[];
   descuentos: ConceptoItem[];
+  aportesTrabajador: ConceptoItem[];
   aportes: ConceptoItem[];
   netoPagar: number;
 }
@@ -70,6 +74,7 @@ interface Fila {
   ocu_descri: string;
   cc_descri: string;
   tip_descri: string;
+  Stip: string;
   Est_Emple: string;
   reg_descri: string;
   reg_fecins: string;
@@ -82,6 +87,8 @@ interface Fila {
   totDiasFalta: number;
   totHoras: number;
   totHorasSob: number;
+  totMinuto: number;
+  totMinutoSob: number;
   rem_fecini: string;
   rem_fecfin: string;
   con_descri: string;
@@ -178,9 +185,9 @@ export class NominaService {
   private async leerDetalleLocal(anomes: string, correl: string): Promise<Fila[]> {
     return this.dataSource.query(
       `SELECT id_traba, tra_nrodni, tra_apepat, tra_apemat, tra_nombre, ocu_descri, cc_descri,
-              tip_descri, Est_Emple, reg_descri, reg_fecins, tra_nroafp,
+              tip_descri, Stip, Est_Emple, reg_descri, reg_fecins, tra_nroafp,
               SdoBasico, SdoBasFam, DiaBasico, totDias, todDiasDMedi, totDiasFalta,
-              totHoras, totHorasSob, rem_fecini, rem_fecfin, con_descri, Horas,
+              totHoras, totHorasSob, totMinuto, totMinutoSob, rem_fecini, rem_fecfin, con_descri, Horas,
               Ingresos, Descuentos, Neto, emp_descri, emp_ruc, emp_dirfis, rem_descri
        FROM dbo.NominaDetalle
        WHERE anomes=@0 AND correl=@1
@@ -241,6 +248,7 @@ export class NominaService {
     const f0 = filas[0];
     const ingresos: ConceptoItem[] = [];
     const descuentos: ConceptoItem[] = [];
+    const aportesTrabajador: ConceptoItem[] = [];
     const aportes: ConceptoItem[] = [];
 
     const diaBasico = this.num(f0.DiaBasico);
@@ -252,13 +260,27 @@ export class NominaService {
       const desc = this.num(f.Descuentos);
       const neto = this.num(f.Neto);
       const movim = this.movimDe(f, concepto, diaBasico);
-      if (ing > 0) ingresos.push({ concepto, monto: ing, movim });
-      if (desc > 0) descuentos.push({ concepto, monto: desc, movim });
-      if (neto > 0) aportes.push({ concepto, monto: neto, movim });
+      const stip = this.txt(f.Stip);
+      const item = { concepto, monto: ing, movim };
+      if (stip.startsWith('01') && ing > 0) {
+        ingresos.push(item);
+      } else if (stip.startsWith('02') && desc > 0) {
+        descuentos.push({ concepto, monto: desc, movim });
+      } else if (stip.startsWith('03') && desc > 0) {
+        aportesTrabajador.push({ concepto, monto: desc, movim });
+      } else if (stip.startsWith('04') && neto > 0) {
+        aportes.push({ concepto, monto: neto, movim });
+      } else if (!stip) {
+        if (ing > 0) ingresos.push(item);
+        if (desc > 0) descuentos.push({ concepto, monto: desc, movim });
+        if (neto > 0) aportes.push({ concepto, monto: neto, movim });
+      }
     }
 
     const totalIngresos = ingresos.reduce((a, b) => a + b.monto, 0);
-    const totalDescuentos = descuentos.reduce((a, b) => a + b.monto, 0);
+    const totalDescuentos =
+      descuentos.reduce((a, b) => a + b.monto, 0) +
+      aportesTrabajador.reduce((a, b) => a + b.monto, 0);
     const netoPagar = Math.round((totalIngresos - totalDescuentos) * 100) / 100;
 
     const remIni = this.txt(f0.rem_fecini);
@@ -281,17 +303,20 @@ export class NominaService {
       regimenPensionario: this.txt(f0.reg_descri),
       cuspp: this.txt(f0.tra_nroafp),
       centroCostos: this.txt(f0.cc_descri),
+      ocupacion: this.txt(f0.ocu_descri),
       tipoTrabajador: this.txt(f0.tip_descri),
-      condicion: '',
-      otrosEmpRta5ta: '',
+      condicion: 'DOMICILIADO',
+      otrosEmpRta5ta: 'NO TIENE',
       periodoTexto: `${remIni.slice(4, 6)}/${remIni.slice(0, 4)} - Del ${this.f8(remIni)} Al ${this.f8(remFin)}`,
       diasLaborados: `${diaBasico} / ${totDias - diaBasico} / ${this.num(f0.todDiasDMedi)}`,
-      jornadaOrdinaria: `${this.num(f0.totHoras)} / 0`,
-      sobretiempo: `${this.num(f0.totHorasSob)} / 0`,
+      jornadaOrdinaria: `${this.num(f0.totHoras)} / ${this.num(f0.totMinuto)}`,
+      sobretiempo: `${this.num(f0.totHorasSob)} / ${this.num(f0.totMinutoSob)}`,
       diasLab: diaBasico,
       diasNL: totDias - diaBasico,
       diasSub: this.num(f0.todDiasDMedi),
       horasExtra: this.num(f0.totHorasSob),
+      minutos: this.num(f0.totMinuto),
+      minutosSob: this.num(f0.totMinutoSob),
       formaPago: '',
       categoria: this.txt(f0.tip_descri).toUpperCase(),
       periodoPlanilla: `MES: ${remIni.slice(4, 6)} - ${remIni.slice(0, 4)} - Del ${this.fechaCorta(remIni)} al ${this.fechaCorta(remFin)}`,
@@ -300,6 +325,7 @@ export class NominaService {
       cargoRepresentante: 'GERENTE GENERAL',
       ingresos,
       descuentos,
+      aportesTrabajador,
       aportes,
       netoPagar,
     };
