@@ -38,4 +38,9 @@ export class NominaController {
   importar(@Body() dto: ImportarNominaDto) {
     return this.service.importar(dto.anomes, dto.correl);
   }
+
+  @Post('generar')
+  generar(@Body() dto: ImportarNominaDto) {
+    return this.service.generar(dto.anomes, dto.correl);
+  }
 }

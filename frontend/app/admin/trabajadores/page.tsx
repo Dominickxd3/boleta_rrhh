@@ -1,47 +1,62 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { Building2, Eye, Pencil, RefreshCw, Users, X } from "lucide-react";
 import Swal from "sweetalert2";
 import { apiFetch } from "@/lib/api";
 import { SincronizarTrabajadoresResultado, Worker } from "@/lib/types";
 
 interface FormState {
+  dni: string;
+  nombres: string;
+  apellidoPaterno: string;
+  apellidoMaterno: string;
   email: string;
   telefono: string;
   area: string;
   cargo: string;
 }
 
-const vacio: FormState = { email: "", telefono: "", area: "", cargo: "" };
+const vacio: FormState = {
+  dni: "",
+  nombres: "",
+  apellidoPaterno: "",
+  apellidoMaterno: "",
+  email: "",
+  telefono: "",
+  area: "",
+  cargo: "",
+};
 
 export default function TrabajadoresPage() {
   const [lista, setLista] = useState<Worker[]>([]);
   const [busqueda, setBusqueda] = useState("");
   const [areaFiltro, setAreaFiltro] = useState("");
-  const [soloActivos, setSoloActivos] = useState(true);
   const [totales, setTotales] = useState({ personal: 0, areas: 0 });
   const [form, setForm] = useState<FormState>(vacio);
   const [editandoId, setEditandoId] = useState<number | null>(null);
   const [mostrarForm, setMostrarForm] = useState(false);
+  const [visto, setVisto] = useState<Worker | null>(null);
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(true);
   const [sincronizando, setSincronizando] = useState(false);
   const [progreso, setProgreso] = useState(0);
+  const [pagina, setPagina] = useState(1);
+  const POR_PAGINA = 10;
 
   const cargar = useCallback(async () => {
     setCargando(true);
     try {
       const qs = new URLSearchParams();
       if (busqueda) qs.set("busqueda", busqueda);
-      if (soloActivos) qs.set("soloActivos", "true");
+      qs.set("soloActivos", "true");
       setLista(await apiFetch<Worker[]>(`/trabajadores?${qs.toString()}`));
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setCargando(false);
     }
-  }, [busqueda, soloActivos]);
+  }, [busqueda]);
 
   const cargarTotales = useCallback(async () => {
     try {
@@ -59,6 +74,10 @@ export default function TrabajadoresPage() {
     cargar();
     cargarTotales();
   }, [cargar, cargarTotales]);
+
+  useEffect(() => {
+    setPagina(1);
+  }, [busqueda, areaFiltro]);
 
   const sincronizar = async () => {
     setSincronizando(true);
@@ -104,9 +123,14 @@ export default function TrabajadoresPage() {
   );
 
   const visibles = useMemo(
-    () =>
-      lista.filter((w) => !areaFiltro || w.area === areaFiltro),
+    () => lista.filter((w) => !areaFiltro || w.area === areaFiltro),
     [lista, areaFiltro],
+  );
+
+  const totalPaginas = Math.max(1, Math.ceil(visibles.length / POR_PAGINA));
+  const paginados = visibles.slice(
+    (pagina - 1) * POR_PAGINA,
+    Math.min(pagina * POR_PAGINA, visibles.length),
   );
 
   const set = (campo: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -120,8 +144,6 @@ export default function TrabajadoresPage() {
       const body = {
         email: form.email || undefined,
         telefono: form.telefono || undefined,
-        area: form.area || undefined,
-        cargo: form.cargo || undefined,
       };
       await apiFetch(`/trabajadores/${editandoId}`, {
         method: "PATCH",
@@ -137,8 +159,18 @@ export default function TrabajadoresPage() {
     }
   };
 
+  const cancelarEdicion = () => {
+    setMostrarForm(false);
+    setEditandoId(null);
+    setForm(vacio);
+  };
+
   const editar = (w: Worker) => {
     setForm({
+      dni: w.dni,
+      nombres: w.nombres,
+      apellidoPaterno: w.apellidoPaterno,
+      apellidoMaterno: w.apellidoMaterno,
       email: w.email || "",
       telefono: w.telefono || "",
       area: w.area || "",
@@ -148,19 +180,11 @@ export default function TrabajadoresPage() {
     setMostrarForm(true);
   };
 
-  const eliminar = async (w: Worker) => {
-    if (!confirm(`¿Eliminar a ${w.nombreCompleto}?`)) return;
-    try {
-      await apiFetch(`/trabajadores/${w.id}`, { method: "DELETE" });
-      cargar();
-      cargarTotales();
-    } catch (e) {
-      alert((e as Error).message);
-    }
-  };
-
   const input =
     "mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+
+  const soloLectura =
+    "mt-1 w-full rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-gray-700";
 
   return (
     <div className="space-y-6">
@@ -176,16 +200,112 @@ export default function TrabajadoresPage() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="rounded-xl bg-white shadow p-5">
-          <p className="text-sm text-gray-500">Total de personal</p>
-          <p className="text-3xl font-bold text-emerald-600">{totales.personal}</p>
-          <p className="text-xs text-gray-400 mt-1">Trabajadores activos</p>
+      {mostrarForm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={cancelarEdicion}
+        >
+          <div
+            className="w-full max-w-lg rounded-xl bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+              <h2 className="font-semibold">Editar trabajador</h2>
+              <button
+                onClick={cancelarEdicion}
+                title="Cerrar"
+                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={guardar} className="p-5 space-y-3">
+              <p className="text-xs text-gray-400">
+                Solo el correo y teléfono se pueden modificar; el resto viene del ERP.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-500">DNI</label>
+                  <div className={soloLectura}>{form.dni}</div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Nombres</label>
+                  <div className={soloLectura}>{form.nombres}</div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Apellido paterno</label>
+                  <div className={soloLectura}>{form.apellidoPaterno}</div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Apellido materno</label>
+                  <div className={soloLectura}>{form.apellidoMaterno}</div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Área</label>
+                  <div className={soloLectura}>{form.area || "—"}</div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Cargo</label>
+                  <div className={soloLectura}>{form.cargo || "—"}</div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium">Email</label>
+                  <input
+                    value={form.email}
+                    onChange={set("email")}
+                    type="email"
+                    className={input}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium">Teléfono</label>
+                  <input value={form.telefono} onChange={set("telefono")} className={input} />
+                </div>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="submit"
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white font-medium hover:bg-blue-700"
+                >
+                  Guardar
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelarEdicion}
+                  className="rounded-lg bg-gray-200 px-4 py-2 text-sm font-medium hover:bg-gray-300"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-        <div className="rounded-xl bg-white shadow p-5">
-          <p className="text-sm text-gray-500">Total de áreas</p>
-          <p className="text-3xl font-bold text-blue-600">{totales.areas}</p>
-          <p className="text-xs text-gray-400 mt-1">Áreas estimadas</p>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="rounded-xl bg-white shadow p-5 flex items-center gap-4">
+          <div className="rounded-lg bg-gray-100 p-3 shrink-0">
+            <Users className="h-6 w-6 text-gray-800" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              Total de personal
+            </p>
+            <p className="text-3xl font-bold text-black">{totales.personal}</p>
+            <p className="text-xs text-gray-500 mt-1">Trabajadores activos</p>
+          </div>
+        </div>
+        <div className="rounded-xl bg-white shadow p-5 flex items-center gap-4">
+          <div className="rounded-lg bg-gray-100 p-3 shrink-0">
+            <Building2 className="h-6 w-6 text-gray-800" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              Total de áreas
+            </p>
+            <p className="text-3xl font-bold text-black">{totales.areas}</p>
+            <p className="text-xs text-gray-500 mt-1">Áreas estimadas</p>
+          </div>
         </div>
       </div>
 
@@ -226,72 +346,12 @@ export default function TrabajadoresPage() {
             </option>
           ))}
         </select>
-        <label className="flex items-center gap-2 text-sm text-gray-700">
-          <input
-            type="checkbox"
-            checked={soloActivos}
-            onChange={(e) => setSoloActivos(e.target.checked)}
-            className="h-4 w-4"
-          />
-          Solo activos
-        </label>
       </div>
 
       {error && (
         <div className="rounded-lg bg-red-50 text-red-700 text-sm px-3 py-2">
           {error}
         </div>
-      )}
-
-      {mostrarForm && (
-        <form
-          onSubmit={guardar}
-          className="bg-white rounded-xl shadow p-5 space-y-4"
-        >
-          <h2 className="font-semibold">Editar trabajador</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium">Email</label>
-              <input
-                value={form.email}
-                onChange={set("email")}
-                type="email"
-                className={input}
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Teléfono</label>
-              <input value={form.telefono} onChange={set("telefono")} className={input} />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Área</label>
-              <input value={form.area} onChange={set("area")} className={input} />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Cargo</label>
-              <input value={form.cargo} onChange={set("cargo")} className={input} />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="submit"
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white font-medium hover:bg-blue-700"
-            >
-              Guardar
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMostrarForm(false);
-                setEditandoId(null);
-                setForm(vacio);
-              }}
-              className="rounded-lg bg-gray-200 px-4 py-2 text-sm font-medium hover:bg-gray-300"
-            >
-              Cancelar
-            </button>
-          </div>
-        </form>
       )}
 
       <div className="bg-white rounded-xl shadow overflow-hidden">
@@ -303,48 +363,35 @@ export default function TrabajadoresPage() {
                 <th className="text-left px-4 py-2">Nombre completo</th>
                 <th className="text-left px-4 py-2">Área</th>
                 <th className="text-left px-4 py-2">Cargo</th>
-                <th className="text-left px-4 py-2">Estado</th>
                 <th className="text-left px-4 py-2">Email</th>
                 <th className="text-left px-4 py-2">Teléfono</th>
                 <th className="text-left px-4 py-2">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {visibles.map((w) => (
-                <tr
-                  key={w.id}
-                  className={w.activo ? "hover:bg-gray-50" : "bg-gray-50 opacity-70 hover:bg-gray-100"}
-                >
+              {paginados.map((w) => (
+                <tr key={w.id} className="hover:bg-gray-50">
                   <td className="px-4 py-2">{w.dni}</td>
                   <td className="px-4 py-2">{w.nombreCompleto}</td>
                   <td className="px-4 py-2 text-gray-500">{w.area || "—"}</td>
                   <td className="px-4 py-2 text-gray-500">{w.cargo || "—"}</td>
-                  <td className="px-4 py-2">
-                    {w.activo ? (
-                      <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                        Activo
-                      </span>
-                    ) : (
-                      <span className="inline-flex rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600">
-                        Inactivo
-                      </span>
-                    )}
-                  </td>
                   <td className="px-4 py-2">{w.email || "—"}</td>
                   <td className="px-4 py-2">{w.telefono || "—"}</td>
                   <td className="px-4 py-2">
-                    <div className="flex gap-3">
+                    <div className="flex gap-2">
                       <button
-                        onClick={() => editar(w)}
-                        className="text-blue-600 hover:underline"
+                        onClick={() => setVisto(w)}
+                        title="Ver datos"
+                        className="rounded-lg bg-gray-100 p-1.5 text-gray-700 hover:bg-gray-200"
                       >
-                        Editar
+                        <Eye className="h-4 w-4" />
                       </button>
                       <button
-                        onClick={() => eliminar(w)}
-                        className="text-red-600 hover:underline"
+                        onClick={() => editar(w)}
+                        title="Editar"
+                        className="rounded-lg bg-gray-100 p-1.5 text-gray-700 hover:bg-gray-200"
                       >
-                        Eliminar
+                        <Pencil className="h-4 w-4" />
                       </button>
                     </div>
                   </td>
@@ -352,7 +399,7 @@ export default function TrabajadoresPage() {
               ))}
               {!cargando && visibles.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-6 text-center text-gray-400">
+                  <td colSpan={7} className="px-4 py-6 text-center text-gray-400">
                     No hay trabajadores que coincidan con el filtro
                   </td>
                 </tr>
@@ -360,7 +407,113 @@ export default function TrabajadoresPage() {
             </tbody>
           </table>
         </div>
+        {visibles.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-4 py-3">
+            <p className="text-sm text-gray-500">
+              Mostrando {paginados.length > 0 ? (pagina - 1) * POR_PAGINA + 1 : 0}–
+              {Math.min(pagina * POR_PAGINA, visibles.length)} de {visibles.length}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPagina((p) => Math.max(1, p - 1))}
+                disabled={pagina <= 1}
+                className="rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <span className="text-sm text-gray-500">
+                Página {pagina} de {totalPaginas}
+              </span>
+              <button
+                onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
+                disabled={pagina >= totalPaginas}
+                className="rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {visto && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setVisto(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-xl bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+              <h2 className="font-semibold">Datos del trabajador</h2>
+              <button
+                onClick={() => setVisto(null)}
+                title="Cerrar"
+                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-lg font-semibold">{visto.nombreCompleto}</p>
+                {visto.activo ? (
+                  <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                    Activo
+                  </span>
+                ) : (
+                  <span className="inline-flex rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600">
+                    Inactivo
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-500">DNI</label>
+                  <p className="text-sm">{visto.dni}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Apellido paterno</label>
+                  <p className="text-sm">{visto.apellidoPaterno || "—"}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Apellido materno</label>
+                  <p className="text-sm">{visto.apellidoMaterno || "—"}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Nombres</label>
+                  <p className="text-sm">{visto.nombres}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Área</label>
+                  <p className="text-sm">{visto.area || "—"}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Cargo</label>
+                  <p className="text-sm">{visto.cargo || "—"}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Email</label>
+                  <p className="text-sm">{visto.email || "—"}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Teléfono</label>
+                  <p className="text-sm">{visto.telefono || "—"}</p>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end border-t border-gray-100 px-5 py-4">
+              <button
+                onClick={() => setVisto(null)}
+                className="rounded-lg bg-gray-200 px-4 py-2 text-sm font-medium hover:bg-gray-300"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

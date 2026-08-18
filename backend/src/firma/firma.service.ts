@@ -10,6 +10,7 @@ import { Repository } from 'typeorm';
 import { Boleta } from '../boletas/boleta.entity';
 import { BoletasService } from '../boletas/boletas.service';
 import { PdfService } from '../pdf/pdf.service';
+import { EventBusService } from '../events/event-bus.service';
 
 @Injectable()
 export class FirmaService {
@@ -18,6 +19,7 @@ export class FirmaService {
     private readonly boletas: BoletasService,
     private readonly pdf: PdfService,
     private readonly config: ConfigService,
+    private readonly events: EventBusService,
   ) {}
 
   private frontUrl(): string {
@@ -70,6 +72,15 @@ export class FirmaService {
     boleta.tokenVer = nuevoTokenVer;
     const guardada = await this.repo.save(boleta);
 
+    this.events.emit('boleta.firmada', {
+      boletaId: guardada.id,
+      periodo: guardada.periodo,
+      anio: guardada.anio,
+      mes: guardada.mes,
+      trabajador: guardada.trabajador.nombreCompleto,
+      fechaFirmado: guardada.fechaFirmado,
+    });
+
     return {
       mensaje: 'Boleta firmada correctamente',
       trabajador: boleta.trabajador.nombreCompleto,
@@ -93,7 +104,7 @@ export class FirmaService {
       anio: boleta.anio,
       mes: boleta.mes,
       fechaFirmado: boleta.fechaFirmado,
-      urlPdf: `/api/firma/ver/${token}/pdf`,
+      urlPdf: `/firma/ver/${token}/pdf`,
     };
   }
 }

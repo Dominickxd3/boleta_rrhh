@@ -32,6 +32,7 @@ export class BoletasService {
   private conUrls(boleta: Boleta) {
     return {
       ...boleta,
+      detalle: this.leerDetalle(boleta),
       urlFirma: boleta.tokenFirma
         ? `${this.frontUrl()}/firmar/${boleta.tokenFirma}`
         : null,
@@ -83,7 +84,14 @@ export class BoletasService {
     const existente = await this.repo.findOne({
       where: { trabajadorId, periodo },
     });
-    if (existente) return null;
+    if (existente) {
+      const nuevoJson = JSON.stringify(detalle);
+      if (existente.detalleJson !== nuevoJson) {
+        existente.detalleJson = nuevoJson;
+        await this.repo.save(existente);
+      }
+      return null;
+    }
 
     const boleta = this.repo.create({
       trabajadorId,
@@ -130,6 +138,80 @@ export class BoletasService {
       firmadas: todas.filter((b) => b.estado === 'FIRMADA').length,
       pendientes: todas.filter((b) => b.estado === 'PENDIENTE').length,
     };
+  }
+
+  async enviosPorMes(anio?: string) {
+    const year = anio ? Number(anio) : new Date().getFullYear();
+    const rows = await this.repo
+      .createQueryBuilder('b')
+      .select('b.mes', 'mes')
+      .addSelect('COUNT(*)', 'total')
+      .where('b.fechaEmail IS NOT NULL')
+      .andWhere('b.anio = :anio', { anio: year })
+      .groupBy('b.mes')
+      .getRawMany();
+
+    const porMes = new Map(rows.map((r) => [Number(r.mes), Number(r.total)]));
+    const etiquetas = [
+      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+      'Jul', 'Ago', 'Set', 'Oct', 'Nov', 'Dic',
+    ];
+    return Array.from({ length: 12 }, (_, i) => {
+      const m = i + 1;
+      return {
+        mes: String(m).padStart(2, '0'),
+        label: etiquetas[i],
+        enviados: porMes.get(m) ?? 0,
+      };
+    });
+  }
+
+  async actividadReciente(limite = 15) {
+    const boletas = await this.repo
+      .createQueryBuilder('b')
+      .leftJoinAndSelect('b.trabajador', 't')
+      .orderBy('b.creadoEn', 'DESC')
+      .take(100)
+      .getMany();
+
+    const eventos: {
+      tipo: string;
+      titulo: string;
+      detalle: string;
+      fecha: Date;
+      boletaId: number;
+    }[] = [];
+
+    for (const b of boletas) {
+      eventos.push({
+        tipo: 'generacion',
+        titulo: 'Boleta generada',
+        detalle: `${b.trabajador.nombreCompleto} · Periodo ${b.periodo}`,
+        fecha: b.creadoEn,
+        boletaId: b.id,
+      });
+      if (b.fechaFirmado) {
+        eventos.push({
+          tipo: 'firma',
+          titulo: 'Boleta firmada',
+          detalle: `${b.trabajador.nombreCompleto} · Periodo ${b.periodo}`,
+          fecha: b.fechaFirmado,
+          boletaId: b.id,
+        });
+      }
+      if (b.fechaEmail) {
+        eventos.push({
+          tipo: 'correo',
+          titulo: 'Correo de firma enviado',
+          detalle: `${b.trabajador.nombreCompleto} · Periodo ${b.periodo}`,
+          fecha: b.fechaEmail,
+          boletaId: b.id,
+        });
+      }
+    }
+
+    eventos.sort((a, b) => b.fecha.getTime() - a.fecha.getTime());
+    return eventos.slice(0, limite);
   }
 
   async porArea(query: { anio?: string; mes?: string; soloPendientes?: string }) {
@@ -214,6 +296,60 @@ export class BoletasService {
     return { ...this.conUrls(guardada), enviado: true, destinatario: email };
   }
 
+  async enviarMasivo(ids: number[]) {
+    let enviados = 0;
+    let sinEmail = 0;
+    let yaEnviados = 0;
+    let errores = 0;
+
+    for (const id of ids) {
+      const boleta = await this.repo.findOne({
+        where: { id },
+        relations: { trabajador: true },
+      });
+      if (!boleta) {
+        errores++;
+        continue;
+      }
+      if (boleta.emailEnviado) {
+        yaEnviados++;
+        continue;
+      }
+      const email = (boleta.trabajador.email || '').trim();
+      if (!email) {
+        sinEmail++;
+        continue;
+      }
+      const conUrl = this.conUrls(boleta);
+      if (!conUrl.urlFirma) {
+        errores++;
+        continue;
+      }
+      try {
+        await this.mail.enviarBoleta({
+          destinatario: email,
+          nombreTrabajador: boleta.trabajador.nombreCompleto,
+          periodo: boleta.periodo,
+          urlFirma: conUrl.urlFirma,
+        });
+        boleta.emailEnviado = true;
+        boleta.fechaEmail = new Date();
+        await this.repo.save(boleta);
+        enviados++;
+      } catch {
+        errores++;
+      }
+    }
+
+    return {
+      total: ids.length,
+      enviados,
+      sinEmail,
+      yaEnviados,
+      errores,
+    };
+  }
+
   async exportarCsv(query: { anio?: string; mes?: string; soloPendientes?: string }) {
     const qb = this.repo
       .createQueryBuilder('b')
@@ -284,33 +420,23 @@ export class BoletasService {
     const boleta = await this.repo.findOne({ where: { id } });
     if (!boleta) throw new NotFoundException('Boleta no encontrada');
 
-    if (boleta.estado === 'FIRMADA' && boleta.rutaPdf) {
-      const existe = await fs
-        .access(boleta.rutaPdf)
-        .then(() => true)
-        .catch(() => false);
-      if (existe) {
-        const buffer = await fs.readFile(boleta.rutaPdf);
-        return { buffer: new Uint8Array(buffer), nombre: this.pdf.nombreArchivo(boleta) };
-      }
-    }
-    const buffer = await this.pdf.generarBoleta(boleta);
+    const firma =
+      boleta.estado === 'FIRMADA' && boleta.firmaPng
+        ? `data:image/png;base64,${boleta.firmaPng}`
+        : undefined;
+    const buffer = await this.pdf.generarBoleta(boleta, firma);
     return { buffer, nombre: this.pdf.nombreArchivo(boleta) };
   }
 
   async obtenerPdfPorToken(token: string): Promise<{ buffer: Uint8Array; nombre: string }> {
     const boleta = await this.repo.findOne({ where: { tokenVer: token } });
     if (!boleta) throw new NotFoundException('Enlace no válido');
-    if (boleta.estado !== 'FIRMADA' || !boleta.rutaPdf) {
+    if (boleta.estado !== 'FIRMADA' || !boleta.firmaPng) {
       throw new NotFoundException('El documento aún no ha sido firmado');
     }
-    const existe = await fs
-      .access(boleta.rutaPdf)
-      .then(() => true)
-      .catch(() => false);
-    if (!existe) throw new NotFoundException('El archivo no existe en el servidor');
-    const buffer = await fs.readFile(boleta.rutaPdf);
-    return { buffer: new Uint8Array(buffer), nombre: this.pdf.nombreArchivo(boleta) };
+    const firma = `data:image/png;base64,${boleta.firmaPng}`;
+    const buffer = await this.pdf.generarBoleta(boleta, firma);
+    return { buffer, nombre: this.pdf.nombreArchivo(boleta) };
   }
 
   leerDetalle(boleta: Boleta) {

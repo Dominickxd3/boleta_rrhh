@@ -66,6 +66,10 @@ export interface ImportarResultado {
   boletas: Boleta[];
 }
 
+export interface GenerarResultado extends ImportarResultado {
+  sincronizado: SincronizarResultado;
+}
+
 export interface Worker {
   id: number;
   dni: string;
@@ -94,6 +98,7 @@ export interface Boleta {
   urlVer: string | null;
   emailEnviado: boolean;
   fechaEmail: string | null;
+  detalle?: Detalle;
 }
 
 export interface Resumen {
@@ -125,4 +130,26 @@ export interface SincronizarTrabajadoresResultado {
   totalActivos: number;
   totalInactivos: number;
   ultimaSync: string;
+}
+
+export interface ActividadReciente {
+  tipo: "generacion" | "firma" | "correo";
+  titulo: string;
+  detalle: string;
+  fecha: string;
+  boletaId: number;
+}
+
+export interface EnvioMes {
+  mes: string;
+  label: string;
+  enviados: number;
+}
+
+export interface EnviarMasivoResultado {
+  total: number;
+  enviados: number;
+  sinEmail: number;
+  yaEnviados: number;
+  errores: number;
 }

@@ -8,6 +8,7 @@ import { WorkersService } from '../workers/workers.service';
 export interface ConceptoItem {
   concepto: string;
   monto: number;
+  movim?: string;
 }
 
 export interface DetalleNomina {
@@ -19,6 +20,30 @@ export interface DetalleNomina {
   sdoBasFam: number;
   totDias: number;
   totHoras: number;
+  documento: string;
+  situacion: string;
+  fIngreso: string;
+  fCese: string;
+  regimenPensionario: string;
+  cuspp: string;
+  centroCostos: string;
+  tipoTrabajador: string;
+  condicion: string;
+  otrosEmpRta5ta: string;
+  periodoTexto: string;
+  diasLaborados: string;
+  jornadaOrdinaria: string;
+  sobretiempo: string;
+  diasLab: number;
+  diasNL: number;
+  diasSub: number;
+  horasExtra: number;
+  formaPago: string;
+  categoria: string;
+  periodoPlanilla: string;
+  lugarFecha: string;
+  representante: string;
+  cargoRepresentante: string;
   ingresos: ConceptoItem[];
   descuentos: ConceptoItem[];
   aportes: ConceptoItem[];
@@ -44,14 +69,26 @@ interface Fila {
   tra_nombre: string;
   ocu_descri: string;
   cc_descri: string;
+  tip_descri: string;
+  Est_Emple: string;
+  reg_descri: string;
+  reg_fecins: string;
+  tra_nroafp: string;
   SdoBasico: number;
   SdoBasFam: number;
+  DiaBasico: number;
   totDias: number;
+  todDiasDMedi: number;
+  totDiasFalta: number;
   totHoras: number;
+  totHorasSob: number;
+  rem_fecini: string;
+  rem_fecfin: string;
   con_descri: string;
   Ingresos: number;
   Descuentos: number;
   Neto: number;
+  Horas: number;
   emp_descri: string;
   emp_ruc: string;
   emp_dirfis: string;
@@ -141,8 +178,10 @@ export class NominaService {
   private async leerDetalleLocal(anomes: string, correl: string): Promise<Fila[]> {
     return this.dataSource.query(
       `SELECT id_traba, tra_nrodni, tra_apepat, tra_apemat, tra_nombre, ocu_descri, cc_descri,
-              SdoBasico, SdoBasFam, totDias, totHoras, con_descri, Ingresos, Descuentos, Neto,
-              emp_descri, emp_ruc, emp_dirfis, rem_descri
+              tip_descri, Est_Emple, reg_descri, reg_fecins, tra_nroafp,
+              SdoBasico, SdoBasFam, DiaBasico, totDias, todDiasDMedi, totDiasFalta,
+              totHoras, totHorasSob, rem_fecini, rem_fecfin, con_descri, Horas,
+              Ingresos, Descuentos, Neto, emp_descri, emp_ruc, emp_dirfis, rem_descri
        FROM dbo.NominaDetalle
        WHERE anomes=@0 AND correl=@1
        ORDER BY id_traba, id`,
@@ -160,25 +199,71 @@ export class NominaService {
     return grupos;
   }
 
+  private f8(v: unknown): string {
+    const s = this.txt(v);
+    if (!/^\d{8}$/.test(s)) return '';
+    return `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}`;
+  }
+
+  private fechaLetras(v: unknown): string {
+    const s = this.txt(v);
+    if (!/^\d{8}$/.test(s)) return '';
+    const meses = [
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+    ];
+    const d = Number(s.slice(6, 8));
+    const m = Number(s.slice(4, 6));
+    const a = s.slice(0, 4);
+    return `${d} de ${meses[m - 1] || ''} de ${a}`;
+  }
+
+  private fechaCorta(v: unknown): string {
+    const s = this.txt(v);
+    if (!/^\d{8}$/.test(s)) return '';
+    const meses = [
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+    ];
+    return `${s.slice(6, 8)} ${meses[Number(s.slice(4, 6)) - 1] || ''} ${s.slice(0, 4)}`;
+  }
+
+  private movimDe(f: Fila, concepto: string, diaBasico: number): string {
+    if (concepto === 'SUELDO BASICO' && diaBasico > 0) {
+      return `${diaBasico.toFixed(2)} DIAS`;
+    }
+    const horas = this.num(f.Horas);
+    if (horas > 0) return `${horas.toFixed(2)} HORAS`;
+    return '';
+  }
+
   private buildDetalle(filas: Fila[]): DetalleNomina {
     const f0 = filas[0];
     const ingresos: ConceptoItem[] = [];
     const descuentos: ConceptoItem[] = [];
     const aportes: ConceptoItem[] = [];
 
+    const diaBasico = this.num(f0.DiaBasico);
+    const totDias = this.num(f0.totDias);
+
     for (const f of filas) {
       const concepto = this.txt(f.con_descri);
       const ing = this.num(f.Ingresos);
       const desc = this.num(f.Descuentos);
       const neto = this.num(f.Neto);
-      if (ing > 0) ingresos.push({ concepto, monto: ing });
-      if (desc > 0) descuentos.push({ concepto, monto: desc });
-      if (neto > 0) aportes.push({ concepto, monto: neto });
+      const movim = this.movimDe(f, concepto, diaBasico);
+      if (ing > 0) ingresos.push({ concepto, monto: ing, movim });
+      if (desc > 0) descuentos.push({ concepto, monto: desc, movim });
+      if (neto > 0) aportes.push({ concepto, monto: neto, movim });
     }
 
     const totalIngresos = ingresos.reduce((a, b) => a + b.monto, 0);
     const totalDescuentos = descuentos.reduce((a, b) => a + b.monto, 0);
     const netoPagar = Math.round((totalIngresos - totalDescuentos) * 100) / 100;
+
+    const remIni = this.txt(f0.rem_fecini);
+    const remFin = this.txt(f0.rem_fecfin);
+    const est = this.txt(f0.Est_Emple);
 
     return {
       empresa: this.txt(f0.emp_descri),
@@ -187,8 +272,32 @@ export class NominaService {
       remune: this.txt(f0.rem_descri),
       sdoBasico: this.num(f0.SdoBasico),
       sdoBasFam: this.num(f0.SdoBasFam),
-      totDias: this.num(f0.totDias),
+      totDias,
       totHoras: this.num(f0.totHoras),
+      documento: `DNI ${this.txt(f0.tra_nrodni)}`,
+      situacion: est === '0' ? 'ACTIVO' : est,
+      fIngreso: this.f8(f0.reg_fecins),
+      fCese: '',
+      regimenPensionario: this.txt(f0.reg_descri),
+      cuspp: this.txt(f0.tra_nroafp),
+      centroCostos: this.txt(f0.cc_descri),
+      tipoTrabajador: this.txt(f0.tip_descri),
+      condicion: '',
+      otrosEmpRta5ta: '',
+      periodoTexto: `${remIni.slice(4, 6)}/${remIni.slice(0, 4)} - Del ${this.f8(remIni)} Al ${this.f8(remFin)}`,
+      diasLaborados: `${diaBasico} / ${totDias - diaBasico} / ${this.num(f0.todDiasDMedi)}`,
+      jornadaOrdinaria: `${this.num(f0.totHoras)} / 0`,
+      sobretiempo: `${this.num(f0.totHorasSob)} / 0`,
+      diasLab: diaBasico,
+      diasNL: totDias - diaBasico,
+      diasSub: this.num(f0.todDiasDMedi),
+      horasExtra: this.num(f0.totHorasSob),
+      formaPago: '',
+      categoria: this.txt(f0.tip_descri).toUpperCase(),
+      periodoPlanilla: `MES: ${remIni.slice(4, 6)} - ${remIni.slice(0, 4)} - Del ${this.fechaCorta(remIni)} al ${this.fechaCorta(remFin)}`,
+      lugarFecha: `San Juan de Lurigancho, ${this.fechaLetras(remFin)}`,
+      representante: 'EDUARDO G. DAMACEN ANGULO',
+      cargoRepresentante: 'GERENTE GENERAL',
       ingresos,
       descuentos,
       aportes,
@@ -196,8 +305,7 @@ export class NominaService {
     };
   }
 
-  async getBoletas(anomes: string, correl: string) {
-    const rows = await this.leerDetalleLocal(anomes, correl);
+  async getBoletas(anomes: string, correl: string) {    const rows = await this.leerDetalleLocal(anomes, correl);
     const grupos = this.agrupar(rows);
     const trabajadores: Record<string, unknown>[] = [];
     for (const [, filas] of grupos) {
@@ -281,5 +389,12 @@ export class NominaService {
       boletasOmitidas,
       boletas,
     };
+  }
+
+  /** Genera las boletas de un periodo en un solo paso: sincroniza (lectura ERP) e importa. */
+  async generar(anomes: string, correl: string) {
+    const sincronizado = await this.sincronizar(anomes, correl);
+    const importado = await this.importar(anomes, correl);
+    return { ...importado, sincronizado };
   }
 }

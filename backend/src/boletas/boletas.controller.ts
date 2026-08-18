@@ -16,6 +16,7 @@ import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { BoletasService } from './boletas.service';
 import { CreateBoletaDto } from './dto/create-boleta.dto';
+import { EnviarMasivoDto } from './dto/enviar-masivo.dto';
 
 @ApiTags('boletas')
 @ApiBearerAuth()
@@ -64,9 +65,24 @@ export class BoletasController {
     return this.service.porArea({ anio, mes, soloPendientes });
   }
 
+  @Get('envios-por-mes')
+  enviosPorMes(@Query('anio') anio?: string) {
+    return this.service.enviosPorMes(anio);
+  }
+
+  @Get('actividad-reciente')
+  actividadReciente(@Query('limite') limite?: string) {
+    return this.service.actividadReciente(limite ? Number(limite) : 15);
+  }
+
   @Patch(':id/email-enviado')
   marcarEmailEnviado(@Param('id', ParseIntPipe) id: number) {
     return this.service.marcarEmailEnviado(id);
+  }
+
+  @Post('enviar-masivo')
+  enviarMasivo(@Body() dto: EnviarMasivoDto) {
+    return this.service.enviarMasivo(dto.ids);
   }
 
   @Post(':id/enviar-correo')
@@ -84,6 +100,7 @@ export class BoletasController {
     const { buffer, nombre } = await this.service.obtenerPdf(id);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${nombre}"`);
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.send(Buffer.from(buffer));
   }
 

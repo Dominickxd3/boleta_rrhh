@@ -33,6 +33,7 @@ export class FirmaController {
     const { buffer, nombre } = await this.boletas.obtenerPdfPorToken(token);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${nombre}"`);
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.send(Buffer.from(buffer));
   }
 }
