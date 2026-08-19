@@ -1,12 +1,14 @@
 export interface DetalleItem {
   concepto: string;
   monto: number;
+  movim?: string;
 }
 
 export interface Detalle {
   ingresos: DetalleItem[];
   descuentos: DetalleItem[];
   aportes?: DetalleItem[];
+  aportesTrabajador?: DetalleItem[];
   netoPagar: number;
   empresa?: string;
   ruc?: string;
@@ -16,6 +18,24 @@ export interface Detalle {
   sdoBasFam?: number;
   totDias?: number;
   totHoras?: number;
+  fIngreso?: string;
+  fCese?: string;
+  regimenPensionario?: string;
+  cuspp?: string;
+  tipoTrabajador?: string;
+  condicion?: string;
+  otrosEmpRta5ta?: string;
+  ocupacion?: string;
+  centroCostos?: string;
+  situacion?: string;
+  documento?: string;
+  diasLab?: number;
+  diasNL?: number;
+  diasSub?: number;
+  horasExtra?: number;
+  minutos?: number;
+  minutosSob?: number;
+  periodoPlanilla?: string;
 }
 
 export interface Periodo {

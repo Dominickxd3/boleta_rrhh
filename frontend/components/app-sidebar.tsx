@@ -107,7 +107,7 @@ export function AppSidebar() {
                 <FileText className="size-4" />
               </div>
               <div className="flex flex-col gap-0.5 leading-none text-left group-data-[collapsible=icon]:hidden">
-                <span className="text-sm font-semibold">Boletas RRHH</span>
+                <span className="text-base font-semibold">Boletas RRHH</span>
                 <span className="text-xs text-muted-foreground">
                   Portal de RR.HH.
                 </span>
@@ -119,7 +119,7 @@ export function AppSidebar() {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>General</SidebarGroupLabel>
+          <SidebarGroupLabel className="text-sm">General</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {items.map((item) => {
@@ -132,8 +132,9 @@ export function AppSidebar() {
                       render={<Link href={item.url} />}
                       isActive={activo}
                       tooltip={item.title}
+                      className="text-base"
                     >
-                      <item.icon />
+                      <item.icon className="size-5" />
                       <span>{item.title}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

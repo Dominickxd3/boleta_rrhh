@@ -1,14 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { apiFetch } from "@/lib/api";
-import SignatureCanvas from "@/components/SignatureCanvas";
+import { apiFetch, API_URL } from "@/lib/api";
+import SignatureOnDocument from "@/components/SignatureOnDocument";
+import FloatingToolbar, { Icons } from "@/components/FloatingToolbar";
+import type { InlineSignatureHandle } from "@/components/InlineSignature";
+import BoletaBloques from "@/components/BoletaBloques";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { Detalle } from "@/lib/types";
-import { money, nombreMes } from "@/lib/format";
 
 interface InfoFirma {
+  boletaId: number;
   trabajador: string;
   dni: string;
   periodo: string;
@@ -24,14 +28,32 @@ interface RespuestaFirma {
   urlVer: string;
 }
 
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 1.5;
+const ZOOM_STEP = 0.1;
+
 export default function FirmarPage() {
   const { token } = useParams<{ token: string }>();
+  const sigRef = useRef<InlineSignatureHandle>(null);
   const [info, setInfo] = useState<InfoFirma | null>(null);
   const [firma, setFirma] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState<RespuestaFirma | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const isMobile = useIsMobile();
+  const [padWidth, setPadWidth] = useState(300);
+
+  useEffect(() => {
+    const calc = () =>
+      setPadWidth(Math.min(window.innerWidth - 32, 560));
+    calc();
+    window.addEventListener("resize", calc);
+    return () => window.removeEventListener("resize", calc);
+  }, []);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -49,8 +71,7 @@ export default function FirmarPage() {
     cargar();
   }, [cargar]);
 
-  const firmar = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const firmar = useCallback(async () => {
     if (!firma) {
       setError("Debe dibujar su firma antes de continuar");
       return;
@@ -68,11 +89,112 @@ export default function FirmarPage() {
     } finally {
       setEnviando(false);
     }
-  };
+  }, [firma, token]);
+
+  const onHistoryChange = useCallback(
+    (state: { canUndo: boolean; canRedo: boolean }) => {
+      setCanUndo(state.canUndo);
+      setCanRedo(state.canRedo);
+    },
+    [],
+  );
+
+  const undo = useCallback(() => sigRef.current?.undo(), []);
+  const redo = useCallback(() => sigRef.current?.redo(), []);
+  const clearSign = useCallback(() => {
+    sigRef.current?.clear();
+    setFirma(null);
+  }, []);
+
+  const zoomIn = useCallback(
+    () =>
+      setZoom((z) => Math.min(ZOOM_MAX, Math.round((z + ZOOM_STEP) * 10) / 10)),
+    [],
+  );
+  const zoomOut = useCallback(
+    () =>
+      setZoom((z) => Math.max(ZOOM_MIN, Math.round((z - ZOOM_STEP) * 10) / 10)),
+    [],
+  );
+  const zoomReset = useCallback(() => setZoom(1), []);
+
+  const actions = useMemo(
+    () => [
+      {
+        id: "undo",
+        label: "Deshacer (Ctrl+Z)",
+        icon: Icons.undo,
+        onClick: undo,
+        disabled: !canUndo,
+      },
+      {
+        id: "redo",
+        label: "Rehacer (Ctrl+Y)",
+        icon: Icons.redo,
+        onClick: redo,
+        disabled: !canRedo,
+      },
+      {
+        id: "clear",
+        label: "Borrar firma",
+        icon: Icons.eraser,
+        onClick: clearSign,
+        disabled: !firma && !canUndo,
+        danger: true,
+        dividerBefore: true,
+      },
+      {
+        id: "zoom-out",
+        label: "Alejar",
+        icon: Icons.zoomOut,
+        onClick: zoomOut,
+        disabled: zoom <= ZOOM_MIN,
+        dividerBefore: true,
+      },
+      {
+        id: "zoom-reset",
+        label: `Zoom ${Math.round(zoom * 100)}%`,
+        icon: Icons.resetZoom,
+        onClick: zoomReset,
+        disabled: zoom === 1,
+      },
+      {
+        id: "zoom-in",
+        label: "Acercar",
+        icon: Icons.zoomIn,
+        onClick: zoomIn,
+        disabled: zoom >= ZOOM_MAX,
+      },
+      {
+        id: "send",
+        label: enviando ? "Firmando…" : "Firmar boleta",
+        icon: Icons.send,
+        onClick: firmar,
+        disabled: !firma || enviando,
+        loading: enviando,
+        primary: true,
+        dividerBefore: true,
+      },
+    ],
+    [
+      undo,
+      redo,
+      canUndo,
+      canRedo,
+      clearSign,
+      firma,
+      zoom,
+      zoomIn,
+      zoomOut,
+      zoomReset,
+      firmar,
+      enviando,
+    ],
+  );
 
   if (cargando) {
     return (
-      <main className="flex items-center justify-center min-h-screen">
+      <main className="flex min-h-screen items-center justify-center">
         <p className="text-gray-500">Cargando boleta…</p>
       </main>
     );
@@ -80,9 +202,9 @@ export default function FirmarPage() {
 
   if (error) {
     return (
-      <main className="flex items-center justify-center min-h-screen px-4">
-        <div className="w-full max-w-md bg-white rounded-xl shadow p-8 text-center">
-          <h1 className="text-xl font-bold text-gray-900 mb-2">Enlace no válido</h1>
+      <main className="flex min-h-screen items-center justify-center px-4">
+        <div className="w-full max-w-md rounded-xl bg-white p-8 text-center shadow">
+          <h1 className="mb-2 text-xl font-bold text-gray-900">Enlace no válido</h1>
           <p className="text-gray-500">{error}</p>
         </div>
       </main>
@@ -91,18 +213,18 @@ export default function FirmarPage() {
 
   if (resultado && info) {
     return (
-      <main className="flex items-center justify-center min-h-screen px-4">
-        <div className="w-full max-w-md bg-white rounded-xl shadow p-8 text-center">
-          <div className="text-5xl mb-3">✅</div>
-          <h1 className="text-xl font-bold text-green-700 mb-1">
+      <main className="flex min-h-screen items-center justify-center px-4">
+        <div className="w-full max-w-md rounded-xl bg-white p-8 text-center shadow">
+          <div className="mb-3 text-5xl">✅</div>
+          <h1 className="mb-1 text-xl font-bold text-green-700">
             ¡Boleta firmada correctamente!
           </h1>
-          <p className="text-gray-600 mb-4">
+          <p className="mb-4 text-gray-600">
             {info.trabajador} — periodo {info.periodo}
           </p>
           <Link
             href={resultado.urlVer}
-            className="inline-block rounded-lg bg-blue-600 px-4 py-2 text-white font-medium hover:bg-blue-700"
+            className="inline-block rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700"
           >
             Ver documento firmado
           </Link>
@@ -113,12 +235,12 @@ export default function FirmarPage() {
 
   if (info?.yaFirmada) {
     return (
-      <main className="flex items-center justify-center min-h-screen px-4">
-        <div className="w-full max-w-md bg-white rounded-xl shadow p-8 text-center">
-          <h1 className="text-xl font-bold text-amber-700 mb-2">
+      <main className="flex min-h-screen items-center justify-center px-4">
+        <div className="w-full max-w-md rounded-xl bg-white p-8 text-center shadow">
+          <h1 className="mb-2 text-xl font-bold text-amber-700">
             Esta boleta ya fue firmada
           </h1>
-          <p className="text-gray-600 mb-4">
+          <p className="text-gray-600">
             Solo se puede firmar una vez. Si necesita ver su documento, use el
             enlace de consulta enviado por Recursos Humanos.
           </p>
@@ -127,116 +249,79 @@ export default function FirmarPage() {
     );
   }
 
+  if (isMobile) {
+    return (
+      <main
+        className="flex flex-col bg-neutral-100"
+        style={{ height: "100dvh" }}
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+          <BoletaBloques
+            ref={sigRef}
+            detalle={info!.detalle}
+            trabajador={info!.trabajador}
+            dni={info!.dni}
+            periodo={info!.periodo}
+            boletaId={info!.boletaId}
+            firma={firma}
+            padWidth={padWidth}
+            canUndo={canUndo}
+            onFirmaChange={setFirma}
+            onHistoryChange={onHistoryChange}
+            onUndo={undo}
+            onClear={clearSign}
+          />
+        </div>
+
+        <div className="border-t border-neutral-200 bg-white px-4 py-3">
+          {error && (
+            <p className="mb-2 text-center text-sm text-red-600">{error}</p>
+          )}
+          <button
+            type="button"
+            onClick={firmar}
+            disabled={!firma || enviando}
+            className="h-12 w-full rounded-xl bg-green-600 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {enviando ? "Firmando…" : "Firmar boleta"}
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <main className="min-h-screen py-8 px-4">
-      <div className="max-w-2xl mx-auto">
-        <div className="bg-white rounded-xl shadow overflow-hidden">
-          <div className="bg-blue-700 px-6 py-4">
-            <h1 className="text-white font-bold text-lg">Boleta de pago</h1>
-            <p className="text-blue-100 text-sm">
-              Periodo {info!.periodo} — {nombreMes(info!.mes)} {info!.anio}
-            </p>
-          </div>
-
-          <div className="p-6 space-y-6">
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="text-gray-500">Trabajador</p>
-                <p className="font-medium">{info!.trabajador}</p>
-              </div>
-              <div>
-                <p className="text-gray-500">DNI</p>
-                <p className="font-medium">{info!.dni}</p>
-              </div>
-            </div>
-
-            <div>
-              <h2 className="font-semibold mb-2">Detalle del pago</h2>
-              {info!.detalle.empresa && (
-                <p className="text-xs text-gray-500 mb-2">
-                  {info!.detalle.empresa}
-                  {info!.detalle.ruc ? ` — RUC ${info!.detalle.ruc}` : ""}
-                  {info!.detalle.remune
-                    ? ` · ${info!.detalle.remune}`
-                    : ""}
-                </p>
-              )}
-              <table className="w-full text-sm">
-                <tbody className="divide-y divide-gray-100">
-                  {info!.detalle.ingresos.map((i, idx) => (
-                    <tr key={idx}>
-                      <td className="py-1.5">{i.concepto}</td>
-                      <td className="py-1.5 text-right font-medium">
-                        {money(i.monto)}
-                      </td>
-                    </tr>
-                  ))}
-                  {info!.detalle.descuentos.map((i, idx) => (
-                    <tr key={`d${idx}`}>
-                      <td className="py-1.5 text-red-600">{i.concepto}</td>
-                      <td className="py-1.5 text-right text-red-600">
-                        − {money(i.monto)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {info!.detalle.aportes && info!.detalle.aportes.length > 0 && (
-                <div className="mt-3">
-                  <p className="text-xs font-medium text-gray-500 mb-1">
-                    APORTES DEL EMPLEADOR
-                  </p>
-                  <table className="w-full text-sm">
-                    <tbody className="divide-y divide-gray-100">
-                      {info!.detalle.aportes.map((i, idx) => (
-                        <tr key={`a${idx}`}>
-                          <td className="py-1 text-gray-600">{i.concepto}</td>
-                          <td className="py-1 text-right text-gray-600">
-                            {money(i.monto)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              <div className="mt-3 bg-gray-100 rounded-lg px-4 py-3 flex justify-between font-bold">
-                <span>NETO A PAGAR</span>
-                <span className="text-blue-700">
-                  {money(info!.detalle.netoPagar)}
-                </span>
-              </div>
-            </div>
-
-            <form onSubmit={firmar} className="space-y-4">
-              <div>
-                <h2 className="font-semibold mb-2">Firme aquí</h2>
-                <SignatureCanvas onChange={setFirma} />
-                <p className="text-xs text-gray-400 mt-1">
-                  Use el dedo o el mouse para dibujar su firma
-                </p>
-              </div>
-
-              {error && (
-                <div className="rounded-lg bg-red-50 text-red-700 text-sm px-3 py-2">
-                  {error}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={enviando}
-                className="w-full rounded-lg bg-green-600 px-4 py-3 text-white font-semibold hover:bg-green-700 disabled:opacity-50"
-              >
-                {enviando ? "Firmando…" : "Firmar boleta"}
-              </button>
-              <p className="text-center text-xs text-gray-400">
-                Al firmar acepta que la información mostrada es correcta.
-              </p>
-            </form>
-          </div>
+    <main className="min-h-screen bg-neutral-100 py-6">
+      <div className="flex justify-center overflow-auto px-4">
+        <div
+          className="origin-top transition-transform duration-200"
+          style={{ transform: `scale(${zoom})` }}
+        >
+          <SignatureOnDocument
+            ref={sigRef}
+            pdfUrl={`${API_URL}/firma/firma/${token}/pdf`}
+            onChange={setFirma}
+            onHistoryChange={onHistoryChange}
+          />
         </div>
       </div>
+
+      {error && (
+        <div className="pointer-events-none fixed left-1/2 top-4 z-[60] -translate-x-1/2">
+          <p className="rounded-full bg-red-600 px-4 py-2 text-sm text-white shadow-lg">
+            {error}
+          </p>
+        </div>
+      )}
+
+      <FloatingToolbar
+        actions={actions}
+        hint={
+          canUndo
+            ? undefined
+            : "Firme sobre la línea · Deshacer / Rehacer por trazo"
+        }
+      />
     </main>
   );
 }

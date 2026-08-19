@@ -35,6 +35,7 @@ export class FirmaService {
     if (!boleta) throw new NotFoundException('El enlace de firma no es válido');
 
     return {
+      boletaId: boleta.id,
       trabajador: boleta.trabajador.nombreCompleto,
       dni: boleta.trabajador.dni,
       periodo: boleta.periodo,
@@ -89,6 +90,14 @@ export class FirmaService {
       rutaPdf: ruta,
       urlVer: `${this.frontUrl()}/ver/${nuevoTokenVer}`,
     };
+  }
+
+  async pdfFirma(token: string) {
+    const boleta = await this.repo.findOne({ where: { tokenFirma: token } });
+    if (!boleta) throw new NotFoundException('El enlace de firma no es válido');
+    const buffer = await this.pdf.generarBoleta(boleta);
+    const nombre = `boleta-${boleta.periodo}-${boleta.trabajador.dni}.pdf`;
+    return { buffer, nombre };
   }
 
   async infoVer(token: string) {

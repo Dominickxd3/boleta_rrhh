@@ -23,6 +23,15 @@ export class FirmaController {
     return this.service.firmar(token, dto.firma);
   }
 
+  @Get('firma/:token/pdf')
+  async pdfFirma(@Param('token') token: string, @Res() res: Response) {
+    const { buffer, nombre } = await this.service.pdfFirma(token);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${nombre}"`);
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.send(Buffer.from(buffer));
+  }
+
   @Get('ver/:token')
   infoVer(@Param('token') token: string) {
     return this.service.infoVer(token);
