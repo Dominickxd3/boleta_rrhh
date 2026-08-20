@@ -60,6 +60,7 @@ interface Ctx {
   logo: PDFImage | null;
   logoW: number;
   logoH: number;
+  representante: PDFImage | null;
 }
 
 const NEGRO = rgb(0, 0, 0);
@@ -118,8 +119,10 @@ export class PdfService {
       logo: null,
       logoW: 0,
       logoH: 0,
+      representante: null,
     };
     await this.cargarLogo(ctx);
+    await this.cargarRepresentante(ctx);
 
     this.dibujarEncabezado(ctx, detalle, boleta.id);
     this.dibujarIdentidad(ctx, boleta, detalle);
@@ -149,6 +152,16 @@ export class PdfService {
       ctx.logoW = ancho;
     } catch {
       ctx.logo = null;
+    }
+  }
+
+  private async cargarRepresentante(ctx: Ctx) {
+    try {
+      const ruta = path.join(__dirname, '../../assets/representante_firma.png');
+      const bytes = await fs.readFile(ruta);
+      ctx.representante = await ctx.doc.embedPng(bytes);
+    } catch {
+      ctx.representante = null;
     }
   }
 
@@ -657,6 +670,31 @@ export class PdfService {
       thickness: 1,
       color: NEGRO,
     });
+
+    if (ctx.representante) {
+      const imagen = ctx.representante;
+      const imgBottom = lineaY + 6;
+      const areaX0 = 40;
+      const areaX1 = 270;
+      const areaW = areaX1 - areaX0;
+      let imgH = Math.max(0, contenidoEnd - 8 - imgBottom);
+      if (imgH > 60) imgH = 60;
+      const aspect = imagen.width / imagen.height;
+      let imgW = aspect * imgH;
+      if (imgW > areaW) {
+        imgW = areaW;
+        imgH = imgW / aspect;
+      }
+      if (imgH > 4 && imgW > 4) {
+        page.drawImage(imagen, {
+          x: areaX0 + (areaW - imgW) / 2,
+          y: imgBottom,
+          width: imgW,
+          height: imgH,
+        });
+      }
+    }
+
     const lblRep = 'REPRESENTANTE LEGAL';
     this.texto(
       page,
@@ -719,15 +757,6 @@ export class PdfService {
     const pages = doc.getPages();
     const total = pages.length;
     pages.forEach((page, i) => {
-      this.texto(
-        page,
-        helvetica,
-        6.5,
-        X0,
-        26,
-        'Documento emitido electrónicamente. No requiere sello ni firma de la empresa.',
-        GRIS_TEXTO,
-      );
       this.textoDer(page, helvetica, 6.5, X4, 26, `Página ${i + 1} de ${total}`, GRIS_TEXTO);
     });
   }

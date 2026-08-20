@@ -11,6 +11,7 @@ import { FirmaModule } from './firma/firma.module';
 import { NominaModule } from './nomina/nomina.module';
 import { GghhModule } from './gghh/gghh.module';
 import { EventsModule } from './events/events.module';
+import { SettingsModule } from './settings/settings.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -42,6 +43,7 @@ import { AppService } from './app.service';
     NominaModule,
     GghhModule,
     EventsModule,
+    SettingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

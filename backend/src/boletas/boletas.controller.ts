@@ -65,9 +65,9 @@ export class BoletasController {
     return this.service.porArea({ anio, mes, soloPendientes });
   }
 
-  @Get('envios-por-mes')
-  enviosPorMes(@Query('anio') anio?: string) {
-    return this.service.enviosPorMes(anio);
+  @Get('firmas-por-mes')
+  firmasPorMes(@Query('anio') anio?: string) {
+    return this.service.firmasPorMes(anio);
   }
 
   @Get('actividad-reciente')
@@ -88,6 +88,11 @@ export class BoletasController {
   @Post(':id/enviar-correo')
   enviarCorreo(@Param('id', ParseIntPipe) id: number) {
     return this.service.enviarCorreo(id);
+  }
+
+  @Post(':id/revertir-firma')
+  revertirFirma(@Param('id', ParseIntPipe) id: number) {
+    return this.service.revertirFirma(id);
   }
 
   @Get(':id')

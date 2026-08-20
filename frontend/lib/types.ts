@@ -163,7 +163,7 @@ export interface ActividadReciente {
 export interface EnvioMes {
   mes: string;
   label: string;
-  enviados: number;
+  firmadas: number;
 }
 
 export interface EnviarMasivoResultado {
@@ -172,4 +172,5 @@ export interface EnviarMasivoResultado {
   sinEmail: number;
   yaEnviados: number;
   errores: number;
+  sinEmailDetalle?: { nombre: string; area: string }[];
 }

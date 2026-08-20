@@ -9,6 +9,7 @@ import {
   Home,
   LogOut,
   RefreshCcw,
+  Settings,
   Users,
 } from "lucide-react";
 import {
@@ -44,6 +45,7 @@ const items = [
   { title: "Inicio", url: "/admin", icon: Home },
   { title: "Trabajadores", url: "/admin/trabajadores", icon: Users },
   { title: "Boletas", url: "/admin/boletas", icon: FileText },
+  { title: "Configuración", url: "/admin/configuracion", icon: Settings },
 ];
 
 const ROLES: Record<string, string> = {
@@ -103,8 +105,13 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" className="h-14 group-data-[collapsible=icon]:h-10">
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                <FileText className="size-4" />
+              <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-white">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/logo_gp.png"
+                  alt="Logo"
+                  className="h-full w-full object-contain"
+                />
               </div>
               <div className="flex flex-col gap-0.5 leading-none text-left group-data-[collapsible=icon]:hidden">
                 <span className="text-base font-semibold">Boletas RRHH</span>

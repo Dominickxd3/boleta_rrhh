@@ -25,7 +25,7 @@ import {
   type PieLabelRenderProps,
   type PieSectorShapeProps,
 } from "recharts";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, getToken, API_URL } from "@/lib/api";
 import {
   ActividadReciente,
   EnvioMes,
@@ -106,45 +106,72 @@ export default function Dashboard() {
   const [mes, setMes] = useState(String(ahora.getMonth() + 1).padStart(2, "0"));
   const [resumen, setResumen] = useState<Resumen>({ total: 0, firmadas: 0, pendientes: 0 });
   const [porArea, setPorArea] = useState<PorAreaResultado>({ total: 0, areas: [] });
-  const [enviosMes, setEnviosMes] = useState<EnvioMes[]>([]);
+  const [firmasMes, setFirmasMes] = useState<EnvioMes[]>([]);
   const [actividad, setActividad] = useState<ActividadReciente[]>([]);
   const [ocultas, setOcultas] = useState<string[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
 
-  const cargar = useCallback(async () => {
+  const refrescar = useCallback(async () => {
     setCargando(true);
     setError("");
     try {
-      const [res, areas, envios] = await Promise.all([
+      const [res, areas, firmas] = await Promise.all([
         apiFetch<Resumen>(`/boletas/resumen?anio=${anio}&mes=${mes}`),
         apiFetch<PorAreaResultado>(`/boletas/por-area?anio=${anio}&mes=${mes}`),
-        apiFetch<EnvioMes[]>(`/boletas/envios-por-mes?anio=${anio}`),
+        apiFetch<EnvioMes[]>(`/boletas/firmas-por-mes?anio=${anio}`),
       ]);
       setResumen(res);
       setPorArea(areas);
-      setEnviosMes(envios);
+      setFirmasMes(firmas);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setCargando(false);
     }
+    try {
+      setActividad(
+        await apiFetch<ActividadReciente[]>(
+          "/boletas/actividad-reciente?limite=12",
+        ),
+      );
+    } catch {
+      /* noop */
+    }
   }, [anio, mes]);
 
   useEffect(() => {
-    cargar();
-  }, [cargar]);
+    refrescar();
+  }, [refrescar]);
 
+  // Actualizar en tiempo real cuando se firma una boleta
   useEffect(() => {
-    apiFetch<ActividadReciente[]>("/boletas/actividad-reciente?limite=12")
-      .then(setActividad)
-      .catch(() => undefined);
-  }, []);
+    const token = getToken();
+    if (!token) return;
+    const es = new EventSource(
+      `${API_URL}/realtime/boletas?token=${encodeURIComponent(token)}`,
+    );
+    const onFirmada = () => refrescar();
+    es.addEventListener("boleta.firmada", onFirmada);
+    return () => {
+      es.removeEventListener("boleta.firmada", onFirmada);
+      es.close();
+    };
+  }, [refrescar]);
 
-  const enviosArea = useMemo(
+  // Actualizar al volver a la pestaña
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") refrescar();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [refrescar]);
+
+  const firmasArea = useMemo(
     () =>
       porArea.areas
-        .map((a) => ({ name: acortar(nombreAreaLimpio(a.area)), value: a.total - a.sinCorreo }))
+        .map((a) => ({ name: acortar(nombreAreaLimpio(a.area)), value: a.firmadas }))
         .filter((a) => a.value > 0)
         .sort((a, b) => b.value - a.value),
     [porArea],
@@ -157,8 +184,8 @@ export default function Dashboard() {
   }, []);
 
   const pieData = useMemo(
-    () => enviosArea.filter((a) => !ocultas.includes(a.name)),
-    [enviosArea, ocultas],
+    () => firmasArea.filter((a) => !ocultas.includes(a.name)),
+    [firmasArea, ocultas],
   );
 
   const colorPorArea = useMemo(() => {
@@ -244,15 +271,15 @@ export default function Dashboard() {
       {/* Gráficos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-xl shadow p-5">
-          <h2 className="font-semibold">Evolución de envíos</h2>
+          <h2 className="font-semibold">Firmas por mes</h2>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
-                data={enviosMes}
+                data={firmasMes}
                 margin={{ top: 4, right: 8, left: 8, bottom: 0 }}
                 onClick={(data) => {
                   const idx = data.activeIndex as number | undefined;
-                  const target = idx != null ? enviosMes[idx] : undefined;
+                  const target = idx != null ? firmasMes[idx] : undefined;
                   if (target?.mes) setMes(target.mes);
                 }}
               >
@@ -260,12 +287,12 @@ export default function Dashboard() {
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                 <Tooltip
-                  formatter={(v) => [`${v} envíos`, ""]}
+                  formatter={(v) => [`${v} firmas`, ""]}
                   cursor={{ fill: "rgba(37, 99, 235, 0.08)" }}
                 />
                 <Bar
-                  dataKey="enviados"
-                  name="Envíos"
+                  dataKey="firmadas"
+                  name="Firmas"
                   fill="#2563eb"
                   radius={[4, 4, 0, 0]}
                   activeBar={{ fill: "#1e40af" }}
@@ -277,8 +304,8 @@ export default function Dashboard() {
         </div>
 
         <div className="bg-white rounded-xl shadow p-5">
-          <h2 className="font-semibold">Envíos por área</h2>
-          {enviosArea.length > 0 ? (
+          <h2 className="font-semibold">Firmas por área</h2>
+          {firmasArea.length > 0 ? (
             <>
               <div className="h-60">
                 {pieData.length > 0 ? (
@@ -303,7 +330,7 @@ export default function Dashboard() {
                           <Cell key={d.name} fill={COLORS[i % COLORS.length]} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(v) => [`${v} envíos`, ""]} />
+                      <Tooltip formatter={(v) => [`${v} firmas`, ""]} />
                     </PieChart>
                   </ResponsiveContainer>
                 ) : (
@@ -313,7 +340,7 @@ export default function Dashboard() {
                 )}
               </div>
               <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
-                {enviosArea.map((a) => {
+                {firmasArea.map((a) => {
                   const oculta = ocultas.includes(a.name);
                   const color = oculta ? "#d1d5db" : colorPorArea.get(a.name);
                   return (
@@ -342,7 +369,7 @@ export default function Dashboard() {
             </>
           ) : (
             <p className="text-sm text-gray-400 py-16 text-center">
-              Aún no hay envíos en este periodo
+              Aún no hay firmas en este periodo
             </p>
           )}
         </div>

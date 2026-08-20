@@ -29,6 +29,16 @@ export class BoletasService {
     return randomBytes(24).toString('base64url');
   }
 
+  /** Horas de validez del enlace de firma desde la creación de la boleta. */
+  private validezLinkHoras(): number {
+    return Number(this.config.get('VALIDEZ_LINK_HORAS', '72')) || 72;
+  }
+
+  private fechaExpiracion(): Date {
+    const horas = this.validezLinkHoras();
+    return new Date(Date.now() + horas * 60 * 60 * 1000);
+  }
+
   private conUrls(boleta: Boleta) {
     return {
       ...boleta,
@@ -68,6 +78,7 @@ export class BoletasService {
       estado: 'PENDIENTE',
       tokenFirma: this.generarToken(),
       tokenVer: this.generarToken(),
+      firmaExpira: this.fechaExpiracion(),
     });
     const guardada = await this.repo.save(boleta);
     return this.conUrls(guardada);
@@ -102,6 +113,7 @@ export class BoletasService {
       estado: 'PENDIENTE',
       tokenFirma: this.generarToken(),
       tokenVer: this.generarToken(),
+      firmaExpira: this.fechaExpiracion(),
     });
     const guardada = await this.repo.save(boleta);
     return this.conUrls(guardada);
@@ -140,13 +152,13 @@ export class BoletasService {
     };
   }
 
-  async enviosPorMes(anio?: string) {
+  async firmasPorMes(anio?: string) {
     const year = anio ? Number(anio) : new Date().getFullYear();
     const rows = await this.repo
       .createQueryBuilder('b')
       .select('b.mes', 'mes')
       .addSelect('COUNT(*)', 'total')
-      .where('b.fechaEmail IS NOT NULL')
+      .where('b.estado = :firmada', { firmada: 'FIRMADA' })
       .andWhere('b.anio = :anio', { anio: year })
       .groupBy('b.mes')
       .getRawMany();
@@ -161,7 +173,7 @@ export class BoletasService {
       return {
         mes: String(m).padStart(2, '0'),
         label: etiquetas[i],
-        enviados: porMes.get(m) ?? 0,
+        firmadas: porMes.get(m) ?? 0,
       };
     });
   }
@@ -170,8 +182,10 @@ export class BoletasService {
     const boletas = await this.repo
       .createQueryBuilder('b')
       .leftJoinAndSelect('b.trabajador', 't')
-      .orderBy('b.creadoEn', 'DESC')
-      .take(100)
+      .orderBy('b.fechaFirmado', 'DESC')
+      .addOrderBy('b.fechaEmail', 'DESC')
+      .addOrderBy('b.creadoEn', 'DESC')
+      .take(150)
       .getMany();
 
     const eventos: {
@@ -260,6 +274,42 @@ export class BoletasService {
     return this.conUrls(guardada);
   }
 
+  async revertirFirma(id: number) {
+    const boleta = await this.repo.findOne({
+      where: { id },
+      relations: { trabajador: true },
+    });
+    if (!boleta) throw new NotFoundException('Boleta no encontrada');
+    if (boleta.estado !== 'FIRMADA') {
+      throw new BadRequestException(
+        'Solo se puede revertir la firma de una boleta ya firmada',
+      );
+    }
+
+    // Eliminar el PDF firmado anterior (si existe)
+    const rutaAnt = boleta.rutaPdf;
+    if (rutaAnt) {
+      try {
+        await fs.unlink(rutaAnt);
+      } catch {
+        /* el archivo pudo ya no existir */
+      }
+    }
+
+    boleta.estado = 'PENDIENTE';
+    boleta.fechaFirmado = null;
+    boleta.firmaPng = null;
+    boleta.rutaPdf = null;
+    boleta.emailEnviado = false;
+    boleta.fechaEmail = null;
+    boleta.tokenFirma = this.generarToken();
+    boleta.firmaExpira = this.fechaExpiracion();
+    boleta.tokenVer = this.generarToken();
+
+    const guardada = await this.repo.save(boleta);
+    return { ...this.conUrls(guardada), revertida: true };
+  }
+
   async enviarCorreo(id: number) {
     const boleta = await this.repo.findOne({
       where: { id },
@@ -272,6 +322,17 @@ export class BoletasService {
       throw new BadRequestException(
         `El trabajador ${boleta.trabajador.nombreCompleto} no tiene email registrado`,
       );
+    }
+
+    // Si el enlace ya venció, se genera un token nuevo (enlace fresco)
+    const vencido =
+      boleta.estado !== 'FIRMADA' &&
+      !!boleta.firmaExpira &&
+      boleta.firmaExpira.getTime() < Date.now();
+    if (vencido) {
+      boleta.tokenFirma = this.generarToken();
+      boleta.firmaExpira = this.fechaExpiracion();
+      await this.repo.save(boleta);
     }
 
     const conUrl = this.conUrls(boleta);
@@ -301,6 +362,7 @@ export class BoletasService {
     let sinEmail = 0;
     let yaEnviados = 0;
     let errores = 0;
+    const sinEmailDetalle: { nombre: string; area: string }[] = [];
 
     for (const id of ids) {
       const boleta = await this.repo.findOne({
@@ -318,6 +380,10 @@ export class BoletasService {
       const email = (boleta.trabajador.email || '').trim();
       if (!email) {
         sinEmail++;
+        sinEmailDetalle.push({
+          nombre: boleta.trabajador.nombreCompleto,
+          area: (boleta.trabajador.area || '').trim() || 'Sin área',
+        });
         continue;
       }
       const conUrl = this.conUrls(boleta);
@@ -347,6 +413,7 @@ export class BoletasService {
       sinEmail,
       yaEnviados,
       errores,
+      sinEmailDetalle,
     };
   }
 

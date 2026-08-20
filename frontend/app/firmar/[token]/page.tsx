@@ -32,6 +32,10 @@ const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 1.5;
 const ZOOM_STEP = 0.1;
 
+// Bloqueo por inactividad: si el usuario deja la pestaña abierta sin tocar nada,
+// se bloquea la firma para no dejar enlaces abiertos indefinidamente.
+const INACTIVIDAD_MS = 15 * 60 * 1000;
+
 export default function FirmarPage() {
   const { token } = useParams<{ token: string }>();
   const sigRef = useRef<InlineSignatureHandle>(null);
@@ -44,6 +48,7 @@ export default function FirmarPage() {
   const [zoom, setZoom] = useState(1);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+  const [inactivo, setInactivo] = useState(false);
   const isMobile = useIsMobile();
   const [padWidth, setPadWidth] = useState(300);
 
@@ -53,6 +58,30 @@ export default function FirmarPage() {
     calc();
     window.addEventListener("resize", calc);
     return () => window.removeEventListener("resize", calc);
+  }, []);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const reset = () => {
+      setInactivo(false);
+      clearTimeout(timer);
+      timer = setTimeout(() => setInactivo(true), INACTIVIDAD_MS);
+    };
+    const eventos = [
+      "pointerdown",
+      "pointermove",
+      "touchstart",
+      "touchmove",
+      "keydown",
+      "scroll",
+      "wheel",
+    ];
+    eventos.forEach((ev) => window.addEventListener(ev, reset, { passive: true }));
+    reset();
+    return () => {
+      clearTimeout(timer);
+      eventos.forEach((ev) => window.removeEventListener(ev, reset));
+    };
   }, []);
 
   const cargar = useCallback(async () => {
@@ -191,6 +220,30 @@ export default function FirmarPage() {
       enviando,
     ],
   );
+
+  if (inactivo) {
+    return (
+      <main className="flex min-h-screen items-center justify-center px-4">
+        <div className="w-full max-w-md rounded-xl bg-white p-8 text-center shadow">
+          <h1 className="mb-2 text-xl font-bold text-amber-700">
+            Enlace inactivo
+          </h1>
+          <p className="mb-4 text-gray-600">
+            La página estuvo abierta sin actividad durante un tiempo y se
+            bloqueó por seguridad. Vuelve a abrir el enlace de firma para
+            continuar.
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="inline-block rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700"
+          >
+            Recargar enlace
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   if (cargando) {
     return (

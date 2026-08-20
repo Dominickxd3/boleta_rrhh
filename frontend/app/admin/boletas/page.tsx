@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BadgeCheck,
-  CheckCheck,
   Download,
   Eye,
   FileCheck2,
@@ -205,22 +204,69 @@ export default function BoletasPage() {
   const enviarCorreo = async (b: Boleta) => {
     const email = b.trabajador.email?.trim();
     if (!email) {
-      alert(
-        `El trabajador ${b.trabajador.nombreCompleto} no tiene email registrado. Edítalo en Trabajadores o usa "Marcar como enviado".`,
-      );
+      await Swal.fire({
+        icon: "warning",
+        title: "Sin correo registrado",
+        text: `El trabajador ${b.trabajador.nombreCompleto} no tiene email registrado. Edítalo en Trabajadores o usa "Marcar como enviado".`,
+      });
       return;
     }
-    if (
-      !confirm(
-        `¿Enviar el link de firma al correo ${email} de ${b.trabajador.nombreCompleto}?`,
-      )
-    )
-      return;
+    const conf = await Swal.fire({
+      icon: "question",
+      title: "Enviar correo",
+      text: `¿Enviar el link de firma al correo ${email} de ${b.trabajador.nombreCompleto}?`,
+      showCancelButton: true,
+      confirmButtonText: "Enviar",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#2563eb",
+    });
+    if (!conf.isConfirmed) return;
     try {
       await apiFetch(`/boletas/${b.id}/enviar-correo`, { method: "POST" });
+      await Swal.fire({
+        icon: "success",
+        title: "Correo enviado",
+        text: `El link de firma se envió a ${email}`,
+        timer: 2000,
+        showConfirmButton: false,
+      });
       cargarPorArea();
     } catch (err) {
-      alert((err as Error).message);
+      await Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: (err as Error).message,
+      });
+    }
+  };
+
+  const revertirFirma = async (b: Boleta) => {
+    const conf = await Swal.fire({
+      icon: "warning",
+      title: "Revertir firma",
+      text: `¿Revertir la firma de ${b.trabajador.nombreCompleto}? Se borrará la firma actual, se generará un nuevo enlace y el trabajador deberá firmar de nuevo.`,
+      showCancelButton: true,
+      confirmButtonText: "Sí, revertir",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#dc2626",
+    });
+    if (!conf.isConfirmed) return;
+    try {
+      await apiFetch(`/boletas/${b.id}/revertir-firma`, { method: "POST" });
+      await Swal.fire({
+        icon: "success",
+        title: "Firma revertida",
+        text: "La boleta quedó pendiente. Reenvía el enlace para que firme de nuevo.",
+        timer: 2500,
+        showConfirmButton: false,
+      });
+      cargarPorArea();
+    } catch (err) {
+      await Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: (err as Error).message,
+      });
     }
   };
 
@@ -278,7 +324,16 @@ export default function BoletasPage() {
       Swal.fire({
         icon: "success",
         title: "Correos enviados",
-        html: `<b>${res.enviados}</b> enviados · <b>${res.yaEnviados}</b> ya enviados · <b>${res.sinEmail}</b> sin correo registrado`,
+        html: (() => {
+          let html = `<b>${res.enviados}</b> enviados · <b>${res.yaEnviados}</b> ya enviados · <b>${res.sinEmail}</b> sin correo registrado · <b>${res.errores}</b> con error`;
+          if (res.sinEmailDetalle && res.sinEmailDetalle.length > 0) {
+            const lista = res.sinEmailDetalle
+              .map((d) => `• ${d.nombre} <span style="color:#6b7280">(${d.area})</span>`)
+              .join("<br/>");
+            html += `<br/><br/><div style="text-align:left;font-size:13px"><b>Sin correo asignado (${res.sinEmailDetalle.length}):</b><br/>${lista}</div>`;
+          }
+          return html;
+        })(),
         confirmButtonColor: "#2563eb",
       });
       setSeleccionadas(new Set());
@@ -298,7 +353,13 @@ export default function BoletasPage() {
   const copiar = async (texto: string, label: string) => {
     try {
       await navigator.clipboard.writeText(texto);
-      alert(`${label} copiado`);
+      await Swal.fire({
+        icon: "success",
+        title: "Copiado",
+        text: `${label} copiado`,
+        timer: 1500,
+        showConfirmButton: false,
+      });
     } catch {
       window.prompt("Copiar manualmente:", texto);
     }
@@ -320,7 +381,11 @@ export default function BoletasPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      alert((err as Error).message);
+      await Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: (err as Error).message,
+      });
     }
   };
 
@@ -541,18 +606,23 @@ export default function BoletasPage() {
                           <FileCheck2 className="h-4 w-4" />
                         </a>
                       )}
-                      {b.emailEnviado ? (
+                      {b.estado === "FIRMADA" && (
                         <button
-                          disabled
-                          title="Correo enviado"
-                          className="rounded-lg bg-emerald-50 p-1.5 text-emerald-600"
+                          onClick={() => revertirFirma(b)}
+                          title="Revertir firma"
+                          className={accionIcono}
                         >
-                          <CheckCheck className="h-4 w-4" />
+                          <RefreshCw className="h-4 w-4" />
                         </button>
-                      ) : (
+                      )}
+                      {b.estado !== "FIRMADA" && (
                         <button
                           onClick={() => enviarCorreo(b)}
-                          title="Enviar correo"
+                          title={
+                            b.emailEnviado
+                              ? "Reenviar correo"
+                              : "Enviar correo"
+                          }
                           className={accionIcono}
                         >
                           <Send className="h-4 w-4" />

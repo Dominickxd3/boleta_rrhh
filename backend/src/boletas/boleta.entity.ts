@@ -36,10 +36,10 @@ export class Boleta {
   estado: string;
 
   @Column({ type: 'datetime2', nullable: true, name: 'fecha_firmado' })
-  fechaFirmado: Date;
+  fechaFirmado: Date | null;
 
   @Column({ type: 'nvarchar', length: 500, nullable: true, name: 'ruta_pdf' })
-  rutaPdf: string;
+  rutaPdf: string | null;
 
   @Column({
     type: 'nvarchar',
@@ -60,13 +60,16 @@ export class Boleta {
   tokenVer: string | null;
 
   @Column({ type: 'ntext', nullable: true, name: 'firma_png' })
-  firmaPng: string;
+  firmaPng: string | null;
 
   @Column({ type: 'bit', default: false, name: 'email_enviado' })
   emailEnviado: boolean;
 
   @Column({ type: 'datetime2', nullable: true, name: 'fecha_email' })
-  fechaEmail: Date;
+  fechaEmail: Date | null;
+
+  @Column({ type: 'datetime2', nullable: true, name: 'firma_expira' })
+  firmaExpira: Date | null;
 
   @CreateDateColumn({ type: 'datetime2', name: 'creado_en' })
   creadoEn: Date;

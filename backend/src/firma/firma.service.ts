@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  GoneException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -10,6 +11,7 @@ import { Repository } from 'typeorm';
 import { Boleta } from '../boletas/boleta.entity';
 import { BoletasService } from '../boletas/boletas.service';
 import { PdfService } from '../pdf/pdf.service';
+import { MailService } from '../mail/mail.service';
 import { EventBusService } from '../events/event-bus.service';
 
 @Injectable()
@@ -18,6 +20,7 @@ export class FirmaService {
     @InjectRepository(Boleta) private readonly repo: Repository<Boleta>,
     private readonly boletas: BoletasService,
     private readonly pdf: PdfService,
+    private readonly mail: MailService,
     private readonly config: ConfigService,
     private readonly events: EventBusService,
   ) {}
@@ -30,9 +33,26 @@ export class FirmaService {
     return randomBytes(24).toString('base64url');
   }
 
+  private expirado(boleta: Boleta): boolean {
+    return (
+      boleta.estado !== 'FIRMADA' &&
+      !!boleta.firmaExpira &&
+      boleta.firmaExpira.getTime() < Date.now()
+    );
+  }
+
+  private validarExpirado(boleta: Boleta) {
+    if (this.expirado(boleta)) {
+      throw new GoneException(
+        'El enlace de firma ha expirado. Solicite un nuevo enlace a RR.HH.',
+      );
+    }
+  }
+
   async infoFirma(token: string) {
     const boleta = await this.repo.findOne({ where: { tokenFirma: token } });
     if (!boleta) throw new NotFoundException('El enlace de firma no es válido');
+    this.validarExpirado(boleta);
 
     return {
       boletaId: boleta.id,
@@ -50,6 +70,7 @@ export class FirmaService {
   async firmar(token: string, firma: string) {
     const boleta = await this.repo.findOne({ where: { tokenFirma: token } });
     if (!boleta) throw new NotFoundException('El enlace de firma no es válido');
+    this.validarExpirado(boleta);
 
     if (boleta.estado === 'FIRMADA') {
       throw new ConflictException(
@@ -82,6 +103,21 @@ export class FirmaService {
       fechaFirmado: guardada.fechaFirmado,
     });
 
+    // Enviar al trabajador su boleta firmada por correo (si falla, no bloquea la firma)
+    const email = (guardada.trabajador.email || '').trim();
+    if (email && this.mail.configurado()) {
+      try {
+        await this.mail.enviarBoletaFirmada({
+          destinatario: email,
+          nombreTrabajador: guardada.trabajador.nombreCompleto,
+          periodo: guardada.periodo,
+          pdfBuffer: buffer,
+        });
+      } catch {
+        /* el correo es secundario; la firma ya se registró */
+      }
+    }
+
     return {
       mensaje: 'Boleta firmada correctamente',
       trabajador: boleta.trabajador.nombreCompleto,
@@ -95,6 +131,7 @@ export class FirmaService {
   async pdfFirma(token: string) {
     const boleta = await this.repo.findOne({ where: { tokenFirma: token } });
     if (!boleta) throw new NotFoundException('El enlace de firma no es válido');
+    this.validarExpirado(boleta);
     const buffer = await this.pdf.generarBoleta(boleta);
     const nombre = `boleta-${boleta.periodo}-${boleta.trabajador.dni}.pdf`;
     return { buffer, nombre };
@@ -107,12 +144,17 @@ export class FirmaService {
       throw new NotFoundException('El documento aún no ha sido firmado');
     }
     return {
+      boletaId: boleta.id,
       trabajador: boleta.trabajador.nombreCompleto,
       dni: boleta.trabajador.dni,
       periodo: boleta.periodo,
       anio: boleta.anio,
       mes: boleta.mes,
       fechaFirmado: boleta.fechaFirmado,
+      detalle: this.boletas.leerDetalle(boleta),
+      firma: boleta.firmaPng
+        ? `data:image/png;base64,${boleta.firmaPng}`
+        : null,
       urlPdf: `/firma/ver/${token}/pdf`,
     };
   }

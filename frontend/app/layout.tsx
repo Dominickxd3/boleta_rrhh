@@ -15,6 +15,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Boletas RRHH",
   description: "Sistema de boletas de pago y firma de trabajadores",
+  icons: {
+    icon: "/logo_gp.png",
+    shortcut: "/logo_gp.png",
+    apple: "/logo_gp.png",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

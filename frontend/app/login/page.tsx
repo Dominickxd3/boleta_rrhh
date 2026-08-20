@@ -30,6 +30,14 @@ export default function LoginPage() {
   return (
     <main className="flex items-center justify-center min-h-screen bg-gray-50 px-4">
       <div className="w-full max-w-sm bg-white rounded-xl shadow p-8">
+        <div className="flex justify-center mb-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo_gp.png"
+            alt="Logo"
+            className="h-16 w-auto object-contain"
+          />
+        </div>
         <h1 className="text-2xl font-bold text-center text-gray-900">
           Boletas RRHH
         </h1>
