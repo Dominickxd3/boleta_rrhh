@@ -12,6 +12,8 @@ import { NominaModule } from './nomina/nomina.module';
 import { GghhModule } from './gghh/gghh.module';
 import { EventsModule } from './events/events.module';
 import { SettingsModule } from './settings/settings.module';
+import { AuditoriaModule } from './auditoria/auditoria.module';
+import { Auditoria } from './auditoria/auditoria.entity';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -27,7 +29,7 @@ import { AppService } from './app.service';
         username: config.get<string>('DB_USER', 'sa'),
         password: config.get<string>('DB_PASSWORD', ''),
         database: config.get<string>('DB_NAME', 'BoletaRRHH'),
-        entities: [User, Worker, Boleta],
+        entities: [User, Worker, Boleta, Auditoria],
         synchronize: true,
         options: {
           encrypt: false,
@@ -44,6 +46,7 @@ import { AppService } from './app.service';
     GghhModule,
     EventsModule,
     SettingsModule,
+    AuditoriaModule,
   ],
   controllers: [AppController],
   providers: [AppService],

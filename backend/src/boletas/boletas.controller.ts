@@ -35,6 +35,7 @@ export class BoletasController {
   }
 
   @Get('exportar')
+  
   async exportar(
     @Res() res: Response,
     @Query('anio') anio?: string,
@@ -76,21 +77,25 @@ export class BoletasController {
   }
 
   @Patch(':id/email-enviado')
+  
   marcarEmailEnviado(@Param('id', ParseIntPipe) id: number) {
     return this.service.marcarEmailEnviado(id);
   }
 
   @Post('enviar-masivo')
+  
   enviarMasivo(@Body() dto: EnviarMasivoDto) {
     return this.service.enviarMasivo(dto.ids);
   }
 
   @Post(':id/enviar-correo')
+  
   enviarCorreo(@Param('id', ParseIntPipe) id: number) {
     return this.service.enviarCorreo(id);
   }
 
   @Post(':id/revertir-firma')
+  
   revertirFirma(@Param('id', ParseIntPipe) id: number) {
     return this.service.revertirFirma(id);
   }
@@ -110,11 +115,13 @@ export class BoletasController {
   }
 
   @Post()
+  
   create(@Body() dto: CreateBoletaDto) {
     return this.service.create(dto);
   }
 
   @Delete(':id')
+  
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.service.remove(id);
   }

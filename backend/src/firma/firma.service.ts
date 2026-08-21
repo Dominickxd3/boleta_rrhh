@@ -13,6 +13,7 @@ import { BoletasService } from '../boletas/boletas.service';
 import { PdfService } from '../pdf/pdf.service';
 import { MailService } from '../mail/mail.service';
 import { EventBusService } from '../events/event-bus.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 
 @Injectable()
 export class FirmaService {
@@ -23,6 +24,7 @@ export class FirmaService {
     private readonly mail: MailService,
     private readonly config: ConfigService,
     private readonly events: EventBusService,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   private frontUrl(): string {
@@ -121,6 +123,14 @@ export class FirmaService {
         /* el correo es secundario; la firma ya se registró */
       }
     }
+
+    await this.auditoria.registrar({
+      usuario: guardada.trabajador.nombreCompleto,
+      accion: 'firma_boleta',
+      entidad: 'boleta',
+      entidadId: guardada.id,
+      detalle: `Periodo ${guardada.periodo}`,
+    });
 
     return {
       mensaje: 'Boleta firmada correctamente',

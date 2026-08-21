@@ -1,9 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 
 @Injectable()
 export class SettingsService {
+  constructor(private readonly auditoria: AuditoriaService) {}
+
   private ruta(): string {
     return path.join(__dirname, '../../assets/representante_firma.png');
   }
@@ -37,6 +40,10 @@ export class SettingsService {
       throw new NotFoundException('Imagen vacía');
     }
     await fs.writeFile(this.ruta(), buffer);
+    await this.auditoria.registrar({
+      accion: 'actualizar_representante',
+      detalle: 'Se actualizó la firma del representante legal',
+    });
     return { ok: true, guardado: true };
   }
 
@@ -46,6 +53,10 @@ export class SettingsService {
     } catch {
       /* noop */
     }
+    await this.auditoria.registrar({
+      accion: 'eliminar_representante',
+      detalle: 'Se eliminó la firma del representante legal',
+    });
     return { ok: true, eliminado: true };
   }
 }

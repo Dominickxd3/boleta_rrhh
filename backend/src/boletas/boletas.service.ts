@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import { MailService } from '../mail/mail.service';
 import { WorkersService } from '../workers/workers.service';
 import { PdfService } from '../pdf/pdf.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { Boleta } from './boleta.entity';
 import { CreateBoletaDto } from './dto/create-boleta.dto';
 
@@ -19,6 +20,7 @@ export class BoletasService {
     private readonly pdf: PdfService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   private frontUrl(): string {
@@ -307,6 +309,12 @@ export class BoletasService {
     boleta.tokenVer = this.generarToken();
 
     const guardada = await this.repo.save(boleta);
+    await this.auditoria.registrar({
+      accion: 'revertir_firma',
+      entidad: 'boleta',
+      entidadId: id,
+      detalle: `Boleta ${boleta.periodo} revertida a PENDIENTE (${boleta.trabajador.nombreCompleto})`,
+    });
     return { ...this.conUrls(guardada), revertida: true };
   }
 
@@ -354,6 +362,12 @@ export class BoletasService {
     boleta.emailEnviado = true;
     boleta.fechaEmail = new Date();
     const guardada = await this.repo.save(boleta);
+    await this.auditoria.registrar({
+      accion: 'enviar_correo',
+      entidad: 'boleta',
+      entidadId: id,
+      detalle: `Correo a ${email}`,
+    });
     return { ...this.conUrls(guardada), enviado: true, destinatario: email };
   }
 
@@ -406,6 +420,18 @@ export class BoletasService {
         errores++;
       }
     }
+
+    await this.auditoria.registrar({
+      accion: 'envio_masivo',
+      entidad: 'boleta',
+      detalle: JSON.stringify({
+        total: ids.length,
+        enviados,
+        sinEmail,
+        yaEnviados,
+        errores,
+      }),
+    });
 
     return {
       total: ids.length,

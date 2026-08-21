@@ -18,6 +18,7 @@ import {
   getUsuario,
   type Usuario,
 } from "@/lib/api";
+import Swal from "sweetalert2";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,10 +43,10 @@ import {
 } from "@/components/ui/sidebar";
 
 const items = [
-  { title: "Inicio", url: "/admin", icon: Home },
-  { title: "Trabajadores", url: "/admin/trabajadores", icon: Users },
-  { title: "Boletas", url: "/admin/boletas", icon: FileText },
-  { title: "Configuración", url: "/admin/configuracion", icon: Settings },
+  { title: "Inicio", url: "/panel", icon: Home },
+  { title: "Trabajadores", url: "/panel/trabajadores", icon: Users },
+  { title: "Boletas", url: "/panel/boletas", icon: FileText },
+  { title: "Configuración", url: "/panel/configuracion", icon: Settings },
 ];
 
 const ROLES: Record<string, string> = {
@@ -87,13 +88,33 @@ export function AppSidebar() {
     setUsuario(getUsuario());
   }, []);
 
-  const salir = () => {
+  const salir = async () => {
+    const conf = await Swal.fire({
+      icon: "question",
+      title: "Cerrar sesión",
+      text: "¿Seguro que deseas cerrar sesión?",
+      showCancelButton: true,
+      confirmButtonText: "Sí, salir",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#dc2626",
+    });
+    if (!conf.isConfirmed) return;
     clearToken();
     clearUsuario();
     router.replace("/login");
   };
 
-  const cambiarCuenta = () => {
+  const cambiarCuenta = async () => {
+    const conf = await Swal.fire({
+      icon: "question",
+      title: "Cambiar cuenta",
+      text: "¿Deseas cambiar de cuenta? Se cerrará la sesión actual.",
+      showCancelButton: true,
+      confirmButtonText: "Sí, cambiar",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#2563eb",
+    });
+    if (!conf.isConfirmed) return;
     clearToken();
     clearUsuario();
     router.replace("/login");
@@ -132,7 +153,7 @@ export function AppSidebar() {
               {items.map((item) => {
                 const activo =
                   pathname === item.url ||
-                  (item.url !== "/admin" && pathname.startsWith(item.url));
+                  (item.url !== "/panel" && pathname.startsWith(item.url));
                 return (
                   <SidebarMenuItem key={item.url}>
                     <SidebarMenuButton

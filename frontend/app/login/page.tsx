@@ -2,12 +2,19 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Eye, EyeOff } from "lucide-react";
+import Swal from "sweetalert2";
 import { loginRequest, setToken, setUsuario } from "@/lib/api";
+
+const WHATSAPP_SISTEMAS = "51922386045";
+const MSG_RECUPERAR =
+  "Hola, necesito recuperar mi contraseña del sistema de Boletas RRHH. ¿Me pueden ayudar?";
 
 export default function LoginPage() {
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [ver, setVer] = useState(false);
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(false);
 
@@ -19,7 +26,15 @@ export default function LoginPage() {
       const res = await loginRequest(username, password);
       setToken(res.access_token);
       setUsuario(res.usuario);
-      router.replace("/admin");
+      await Swal.fire({
+        icon: "success",
+        title: `¡Bienvenido, ${res.usuario.nombre}!`,
+        text: "Iniciando sesión…",
+        timer: 1800,
+        showConfirmButton: false,
+        timerProgressBar: true,
+      });
+      router.replace("/panel");
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -68,14 +83,25 @@ export default function LoginPage() {
             <label className="block text-sm font-medium text-gray-700">
               Contraseña
             </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              required
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <div className="relative mt-1">
+              <input
+                type={ver ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+                className="w-full rounded-lg border border-gray-300 py-2 pl-3 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                onClick={() => setVer((v) => !v)}
+                aria-label={ver ? "Ocultar contraseña" : "Ver contraseña"}
+                title={ver ? "Ocultar contraseña" : "Ver contraseña"}
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-500 hover:text-gray-700"
+              >
+                {ver ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              </button>
+            </div>
           </div>
           <button
             type="submit"
@@ -85,6 +111,17 @@ export default function LoginPage() {
             {cargando ? "Ingresando…" : "Ingresar"}
           </button>
         </form>
+
+        <div className="mt-4 text-center">
+          <a
+            href={`https://wa.me/${WHATSAPP_SISTEMAS}?text=${encodeURIComponent(MSG_RECUPERAR)}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+          >
+            ¿Olvidaste tu contraseña?
+          </a>
+        </div>
       </div>
     </main>
   );

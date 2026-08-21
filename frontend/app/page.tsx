@@ -8,7 +8,7 @@ export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace(getToken() ? "/admin" : "/login");
+    router.replace(getToken() ? "/panel" : "/login");
   }, [router]);
 
   return (
