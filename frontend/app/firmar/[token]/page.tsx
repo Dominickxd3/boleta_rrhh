@@ -49,6 +49,7 @@ export default function FirmarPage() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [inactivo, setInactivo] = useState(false);
+  const [aceptaTerminos, setAceptaTerminos] = useState(false);
   const isMobile = useIsMobile();
   const [padWidth, setPadWidth] = useState(300);
 
@@ -101,6 +102,10 @@ export default function FirmarPage() {
   }, [cargar]);
 
   const firmar = useCallback(async () => {
+    if (!aceptaTerminos) {
+      setError("Debe aceptar los términos y condiciones antes de firmar");
+      return;
+    }
     if (!firma) {
       setError("Debe dibujar su firma antes de continuar");
       return;
@@ -118,7 +123,7 @@ export default function FirmarPage() {
     } finally {
       setEnviando(false);
     }
-  }, [firma, token]);
+  }, [firma, token, aceptaTerminos]);
 
   const onHistoryChange = useCallback(
     (state: { canUndo: boolean; canRedo: boolean }) => {
@@ -245,6 +250,129 @@ export default function FirmarPage() {
     );
   }
 
+  const renderTerminos = () => (
+    <div className="fixed inset-0 z-[70] overflow-y-auto bg-neutral-50">
+      <div className="mx-auto max-w-2xl px-4 py-6">
+        <div className="rounded-xl border border-neutral-200 bg-white shadow-sm">
+          <div className="border-b border-neutral-200 px-6 py-4">
+            <h2 className="text-lg font-bold text-neutral-900">
+              Términos y condiciones de la firma digital
+            </h2>
+            <p className="text-sm text-neutral-500">
+              Boleta de pago de haberes
+            </p>
+          </div>
+          <div className="space-y-4 px-6 py-5 text-sm text-neutral-700">
+            <p>
+              Al firmar este documento, usted reconoce que su firma
+              digital/electrónica tiene plena validez jurídica conforme a la
+              legislación peruana y declara lo siguiente:
+            </p>
+
+            <section>
+              <h3 className="mb-1 font-semibold text-neutral-900">
+                1. Base legal de la firma electrónica
+              </h3>
+              <ul className="list-disc space-y-1.5 pl-5">
+                <li>
+                  <b>Ley N.° 27269 – Ley de Firmas y Certificados Digitales</b>:
+                  regula el uso de la firma electrónica y le otorga validez
+                  jurídica a los actos celebrados por medios electrónicos.
+                </li>
+                <li>
+                  <b>Decreto Supremo N.° 052-2008-PCM</b>: establece las normas
+                  técnicas y legales para la aplicación de los certificados y
+                  firmas digitales.
+                </li>
+                <li>
+                  <b>Código Civil, Artículo 141-A</b>: reconoce que la
+                  manifestación de voluntad puede realizarse a través de medios
+                  electrónicos.
+                </li>
+                <li>
+                  <b>Informe N.° 104-2019-MTPE/2/14.1 del MTPE</b>: confirma que
+                  empleadores y trabajadores pueden utilizar firmas digitales o
+                  electrónicas en los documentos y contratos laborales.
+                </li>
+              </ul>
+            </section>
+
+            <section>
+              <h3 className="mb-1 font-semibold text-neutral-900">
+                2. Efectos de su firma
+              </h3>
+              <ul className="list-disc space-y-1.5 pl-5">
+                <li>
+                  Declara que ha revisado la información de su boleta (sueldo,
+                  descuentos, aportes y neto a pagar).
+                </li>
+                <li>
+                  Declara que los datos contenidos son correctos y corresponden
+                  al periodo indicado.
+                </li>
+                <li>
+                  Manifiesta su conformidad con la boleta de pago de haberes del
+                  periodo.
+                </li>
+                <li>
+                  Reconoce que la firma es de su autoría y de carácter personal
+                  e intransferible.
+                </li>
+              </ul>
+            </section>
+
+            <section>
+              <h3 className="mb-1 font-semibold text-neutral-900">
+                3. Confidencialidad y uso de datos
+              </h3>
+              <ul className="list-disc space-y-1.5 pl-5">
+                <li>
+                  La información contenida es de carácter confidencial y de uso
+                  exclusivo para la gestión de remuneraciones.
+                </li>
+                <li>
+                  El documento firmado se conserva electrónicamente y puede ser
+                  consultado por el trabajador.
+                </li>
+                <li>El enlace de firma es personal e intransferible.</li>
+              </ul>
+            </section>
+
+            <section>
+              <h3 className="mb-1 font-semibold text-neutral-900">
+                4. Validez del documento
+              </h3>
+              <p>
+                El documento firmado digitalmente tiene validez jurídica y valor
+                probatorio, conforme a la normativa citada en el numeral 1.
+              </p>
+            </section>
+          </div>
+          <div className="flex flex-col gap-2 border-t border-neutral-200 bg-neutral-50 px-6 py-4 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => setAceptaTerminos(true)}
+              className="flex-1 rounded-lg bg-green-600 px-4 py-3 text-sm font-semibold text-white hover:bg-green-700"
+            >
+              Acepto los términos y firmo
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setError(
+                  "Debe aceptar los términos y condiciones para poder firmar su boleta.",
+                )
+              }
+              className="flex-1 rounded-lg border border-neutral-300 px-4 py-3 text-sm font-medium text-neutral-600 hover:bg-neutral-100"
+            >
+              No acepto
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   if (cargando) {
     return (
       <main className="flex min-h-screen items-center justify-center">
@@ -339,6 +467,7 @@ export default function FirmarPage() {
             {enviando ? "Firmando…" : "Firmar boleta"}
           </button>
         </div>
+        {!aceptaTerminos && renderTerminos()}
       </main>
     );
   }
@@ -375,6 +504,7 @@ export default function FirmarPage() {
             : "Firme sobre la línea · Deshacer / Rehacer por trazo"
         }
       />
+      {!aceptaTerminos && renderTerminos()}
     </main>
   );
 }

@@ -106,15 +106,18 @@ export class MailService {
           <p style="margin:2px 0 0;font-size:13px;color:#dbeafe">Recursos Humanos</p>
         </div>
         <div style="padding:24px">
-          <p>Hola ${args.nombreTrabajador},</p>
-          <p>Confirmamos que hemos recibido la firma digital de tu boleta de pago correspondiente al periodo de ${mesLabel}.</p>
-          <p style="font-weight:bold;margin:20px 0 8px">Resumen de la transacción:</p>
-          <div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;margin-bottom:16px">
-            <p style="margin:4px 0"><b>Documento:</b> Boleta de Pago - ${mesLabel}</p>
-            <p style="margin:4px 0"><b>Estado:</b> Firmado digitalmente</p>
-            <p style="margin:4px 0"><b>Archivo adjunto:</b> ${nombreArchivo}</p>
+          <h3 style="margin:0 0 16px;color:#111827">REGISTRO DE CONFORMIDAD Y FIRMA</h3>
+          <div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px">
+            <p style="margin:6px 0"><b>Documento:</b> Boleta de Pago de Haberes (Periodo: ${mesLabel})</p>
+            <p style="margin:6px 0"><b>Estatus:</b> Firmado digitalmente conforme a normativa interna</p>
+            <p style="margin:6px 0"><b>Archivo adjunto:</b> ${nombreArchivo}</p>
           </div>
-          <p>Hemos adjuntado a este correo una copia completa en formato PDF para que puedas descargarla y guardarla en tus archivos personales.</p>
+          <p style="font-weight:bold;margin:16px 0 4px">Instrucciones de acceso:</p>
+          <p style="font-size:13px;color:#4b5563;margin:0">
+            Por motivos de confidencialidad y seguridad de la información, el
+            archivo adjunto se encuentra protegido. Para abrirlo e ingresar al
+            documento, utilice su número de DNI como clave de acceso.
+          </p>
         </div>
       </div>`;
 

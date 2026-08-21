@@ -239,6 +239,9 @@ export class NominaService {
     if (concepto === 'SUELDO BASICO' && diaBasico > 0) {
       return `${diaBasico.toFixed(2)} DIAS`;
     }
+    if (/INASISTENCIA|FALTA/i.test(concepto)) {
+      return '';
+    }
     const horas = this.num(f.Horas);
     if (horas > 0) return `${horas.toFixed(2)} HORAS`;
     return '';

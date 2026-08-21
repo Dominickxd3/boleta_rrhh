@@ -11,6 +11,7 @@ import {
   type RGB,
   StandardFonts,
 } from 'pdf-lib';
+import { encryptPDF } from '@pdfsmaller/pdf-encrypt-lite';
 import { Boleta } from '../boletas/boleta.entity';
 
 interface DetalleItem {
@@ -134,7 +135,7 @@ export class PdfService {
     this.dibujarConceptos(ctx, detalle);
     this.dibujarTotales(ctx, detalle);
     this.dibujarAportes(ctx, detalle);
-    await this.dibujarFirmas(ctx, boleta, firmaBase64);
+    await this.dibujarFirmas(ctx, boleta, detalle, firmaBase64);
     this.dibujarPie(doc, helvetica);
 
     return doc.save();
@@ -168,6 +169,23 @@ export class PdfService {
   private parseDetalle(json: string): Detalle {
     try {
       const d = JSON.parse(json);
+      const descuentos = (d?.descuentos ?? []).map(
+        (x: { concepto?: string; monto: number; movim?: string }) => {
+          // La inasistencia/falta no debe mostrar las horas en la columna MOVIM.
+          if (/INASISTENCIA|FALTA/i.test(x?.concepto || '')) {
+            return { ...x, movim: '' };
+          }
+          return x;
+        },
+      );
+      let diasNL = Math.max(0, Number(d?.diasNL ?? 0));
+      // Si hay una inasistencia/falta registrada, los días no laborados deben reflejarla
+      const inasistencia = descuentos.find((x: { concepto?: string }) =>
+        /INASISTENCIA|FALTA/i.test(x?.concepto || ''),
+      );
+      if (diasNL === 0 && inasistencia) {
+        diasNL = 1;
+      }
       return {
         empresa: d?.empresa,
         ruc: d?.ruc,
@@ -185,7 +203,7 @@ export class PdfService {
         situacion: d?.situacion,
         documento: d?.documento,
         diasLab: Number(d?.diasLab ?? 0),
-        diasNL: Number(d?.diasNL ?? 0),
+        diasNL,
         diasSub: Number(d?.diasSub ?? 0),
         horasExtra: Number(d?.horasExtra ?? 0),
         minutos: Number(d?.minutos ?? 0),
@@ -193,7 +211,7 @@ export class PdfService {
         totHoras: Number(d?.totHoras ?? 0),
         periodoPlanilla: d?.periodoPlanilla,
         ingresos: d?.ingresos ?? [],
-        descuentos: d?.descuentos ?? [],
+        descuentos,
         aportesTrabajador: d?.aportesTrabajador ?? [],
         aportes: d?.aportes ?? [],
         netoPagar: Number(d?.netoPagar ?? 0),
@@ -497,9 +515,9 @@ export class PdfService {
 
     this.caja(ctx, top, top - h1 - h2, X0, X4, cols.slice(1, -1));
     this.pageHline(ctx, top - h1);
-    this.tituloCelda(ctx, cols[0], cols[1], top, 'CENTRO DE COSTOS', false);
-    this.tituloCelda(ctx, cols[1], cols[2], top, 'OCUPACIÓN', false);
-    this.tituloCelda(ctx, cols[2], cols[3], top, 'OTROS EMP. RTA. 5TA. CAT.', false);
+    this.tituloCelda(ctx, cols[0], cols[1], top, 'CENTRO DE COSTOS', true);
+    this.tituloCelda(ctx, cols[1], cols[2], top, 'OCUPACIÓN', true);
+    this.tituloCelda(ctx, cols[2], cols[3], top, 'OTROS EMP. RTA. 5TA. CAT.', true);
 
     const vy = top - h1;
     this.valorCelda(ctx, cols[0], cols[1], vy, detalle.centroCostos || '-', { bold: false, centro: true, tam: 7.5 });
@@ -639,8 +657,7 @@ export class PdfService {
       borderWidth: 0.8,
     });
     const titulo = '04 Aportes del Empleador';
-    const anchoT = ctx.bold.widthOfTextAtSize(titulo, 10);
-    this.texto(page, ctx.bold, 10, (595.28 - anchoT) / 2, this.centroY(topR, h1, 10), titulo, NEGRO);
+    this.texto(page, ctx.bold, 10, X0 + 6, this.centroY(topR, h1, 10), titulo, NEGRO);
 
     let y = topR - h1;
     for (const item of aportes) {
@@ -656,6 +673,7 @@ export class PdfService {
   private async dibujarFirmas(
     ctx: Ctx,
     boleta: Boleta,
+    detalle: Detalle,
     firmaBase64?: string,
   ) {
     const { page } = ctx;
@@ -673,7 +691,7 @@ export class PdfService {
 
     if (ctx.representante) {
       const imagen = ctx.representante;
-      const imgBottom = lineaY + 6;
+      const imgBottom = lineaY + 4;
       const areaX0 = 40;
       const areaX1 = 270;
       const areaW = areaX1 - areaX0;
@@ -694,17 +712,6 @@ export class PdfService {
         });
       }
     }
-
-    const lblRep = 'REPRESENTANTE LEGAL';
-    this.texto(
-      page,
-      ctx.bold,
-      8,
-      40 + (270 - 40 - ctx.bold.widthOfTextAtSize(lblRep, 8)) / 2,
-      lineaY - 8,
-      lblRep,
-      NEGRO,
-    );
 
     if (firmaBase64) {
       try {
@@ -741,16 +748,40 @@ export class PdfService {
       thickness: 1,
       color: NEGRO,
     });
-    const lblFir = 'FIRMA TRABAJADOR';
-    this.texto(
-      page,
-      ctx.bold,
-      8,
-      330 + (540 - 330 - ctx.bold.widthOfTextAtSize(lblFir, 8)) / 2,
-      lineaY - 8,
-      lblFir,
-      NEGRO,
-    );
+
+    // Datos estructurados bajo las líneas de firma
+    const centrar = (
+      font: PDFFont,
+      size: number,
+      x0: number,
+      x1: number,
+      y: number,
+      texto: string,
+      color: RGB = NEGRO,
+    ) => {
+      this.texto(
+        page,
+        font,
+        size,
+        x0 + (x1 - x0 - font.widthOfTextAtSize(String(texto), size)) / 2,
+        y,
+        texto,
+        color,
+      );
+    };
+
+    // Lado izquierdo: Empleador
+    const razonSocial = detalle.empresa || 'GRUPO PECUARIO S.A.C.';
+    const ruc = detalle.ruc || '20513967234';
+    centrar(ctx.bold, 8, 40, 270, 106, razonSocial.toUpperCase());
+    centrar(ctx.helvetica, 7, 40, 270, 98, `R.U.C.: ${ruc}`);
+    centrar(ctx.helvetica, 7, 40, 270, 90, 'Empleador');
+
+    // Lado derecho: Colaborador
+    const nombre = boleta.trabajador.nombreCompleto.toUpperCase();
+    centrar(ctx.bold, 8, 330, 540, 106, nombre);
+    centrar(ctx.helvetica, 7, 330, 540, 98, `DNI: ${boleta.trabajador.dni || ''}`);
+    centrar(ctx.bold, 7.5, 330, 540, 90, 'Colaborador');
   }
 
   private dibujarPie(doc: PDFDocument, helvetica: PDFFont) {
@@ -772,6 +803,14 @@ export class PdfService {
   private base64APng(dataUrl: string): Uint8Array {
     const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
     return Uint8Array.from(Buffer.from(base64, 'base64'));
+  }
+
+  /** Protege un PDF con contraseña de apertura (la clave del usuario = DNI). */
+  async protegerConClave(
+    buffer: Uint8Array,
+    clave: string,
+  ): Promise<Uint8Array> {
+    return await encryptPDF(buffer, clave, clave + '_gp');
   }
 }
 

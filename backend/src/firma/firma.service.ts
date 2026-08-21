@@ -107,11 +107,15 @@ export class FirmaService {
     const email = (guardada.trabajador.email || '').trim();
     if (email && this.mail.configurado()) {
       try {
+        const dni = guardada.trabajador.dni || '';
+        const pdfProtegido = dni
+          ? await this.pdf.protegerConClave(buffer, dni)
+          : buffer;
         await this.mail.enviarBoletaFirmada({
           destinatario: email,
           nombreTrabajador: guardada.trabajador.nombreCompleto,
           periodo: guardada.periodo,
-          pdfBuffer: buffer,
+          pdfBuffer: pdfProtegido,
         });
       } catch {
         /* el correo es secundario; la firma ya se registró */
