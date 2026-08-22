@@ -69,7 +69,11 @@ export class FirmaService {
     };
   }
 
-  async firmar(token: string, firma: string, ip?: string | null) {
+  async firmar(
+    token: string,
+    firma: string,
+    actor?: { ip?: string | null; userAgent?: string | null },
+  ) {
     const boleta = await this.repo.findOne({ where: { tokenFirma: token } });
     if (!boleta) throw new NotFoundException('El enlace de firma no es válido');
     this.validarExpirado(boleta);
@@ -87,7 +91,7 @@ export class FirmaService {
     boleta.fechaFirmado = new Date();
     boleta.firmaPng = firma.replace(/^data:image\/png;base64,/, '');
     boleta.modificadoPor = boleta.trabajador.nombreCompleto;
-    boleta.modificadoIp = ip ?? null;
+    boleta.modificadoIp = actor?.ip ?? null;
     boleta.modificadoEn = new Date();
 
     const buffer = await this.pdf.generarBoleta(boleta, firma);
@@ -129,7 +133,8 @@ export class FirmaService {
 
     await this.auditoria.registrar({
       usuario: guardada.trabajador.nombreCompleto,
-      ip: ip ?? null,
+      ip: actor?.ip ?? null,
+      userAgent: actor?.userAgent ?? null,
       accion: 'firma_boleta',
       entidad: 'boleta',
       entidadId: guardada.id,

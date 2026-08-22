@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { AuditoriaService } from '../auditoria/auditoria.service';
+import { AuditoriaService, type ActorAuditoria } from '../auditoria/auditoria.service';
 import { BoletasService } from '../boletas/boletas.service';
 import { WorkersService } from '../workers/workers.service';
 
@@ -130,7 +130,7 @@ export class NominaService {
   async sincronizar(
     anomes: string,
     correl: string,
-    actor?: { usuario?: string | null; ip?: string | null },
+    actor?: ActorAuditoria,
   ) {
     const emp = this.config.get<string>('NOMINA_EMP_CODIGO', '003');
     const rem = Number(this.config.get<string>('NOMINA_ID_REMUNE', '1'));
@@ -150,6 +150,7 @@ export class NominaService {
     await this.auditoria.registrar({
       usuario: actor?.usuario ?? null,
       ip: actor?.ip ?? null,
+      userAgent: actor?.userAgent ?? null,
       accion: 'sincronizar_nomina',
       entidad: 'nomina',
       detalle: `Periodo ${anomes}/${correl}`,
@@ -379,7 +380,7 @@ export class NominaService {
   async importar(
     anomes: string,
     correl: string,
-    actor?: { usuario?: string | null; ip?: string | null },
+    actor?: ActorAuditoria,
   ) {
     const rows = await this.leerDetalleLocal(anomes, correl);
     const grupos = this.agrupar(rows);
@@ -431,6 +432,7 @@ export class NominaService {
     await this.auditoria.registrar({
       usuario: actor?.usuario ?? null,
       ip: actor?.ip ?? null,
+      userAgent: actor?.userAgent ?? null,
       accion: 'importar_nomina',
       entidad: 'nomina',
       detalle: `Periodo ${anomes}/${correl}: ${boletasGeneradas} boletas nuevas`,
@@ -450,13 +452,14 @@ export class NominaService {
   async generar(
     anomes: string,
     correl: string,
-    actor?: { usuario?: string | null; ip?: string | null },
+    actor?: ActorAuditoria,
   ) {
     const sincronizado = await this.sincronizar(anomes, correl, actor);
     const importado = await this.importar(anomes, correl, actor);
     await this.auditoria.registrar({
       usuario: actor?.usuario ?? null,
       ip: actor?.ip ?? null,
+      userAgent: actor?.userAgent ?? null,
       accion: 'generar_boletas',
       entidad: 'nomina',
       detalle: `Periodo ${anomes}/${correl}: ${importado.boletasGeneradas} boletas generadas`,

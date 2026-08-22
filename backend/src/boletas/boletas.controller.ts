@@ -21,7 +21,11 @@ import { EnviarMasivoDto } from './dto/enviar-masivo.dto';
 
 function actorDe(req: Request) {
   const user = req.user as { username?: string } | undefined;
-  return { usuario: user?.username ?? null, ip: req.ip ?? null };
+  return {
+    usuario: user?.username ?? null,
+    ip: req.ip ?? null,
+    userAgent: req.headers['user-agent'] ?? null,
+  };
 }
 
 @ApiTags('boletas')
@@ -101,6 +105,16 @@ export class BoletasController {
   @Post(':id/revertir-firma')
   revertirFirma(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
     return this.service.revertirFirma(id, actorDe(req));
+  }
+
+  @Get(':id/auditoria')
+  auditoria(@Param('id', ParseIntPipe) id: number) {
+    return this.service.auditoriaDe(id);
+  }
+
+  @Post(':id/copiar-link')
+  copiarLink(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
+    return this.service.auditarCopiarLink(id, actorDe(req));
   }
 
   @Get(':id')

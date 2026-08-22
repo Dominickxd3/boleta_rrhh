@@ -28,6 +28,9 @@ export class Auditoria {
   @Column({ type: 'nvarchar', length: 50, nullable: true })
   ip: string | null;
 
+  @Column({ type: 'nvarchar', length: 300, nullable: true, name: 'user_agent' })
+  userAgent: string | null;
+
   @CreateDateColumn({ type: 'datetime2', name: 'fecha' })
   fecha: Date;
 }

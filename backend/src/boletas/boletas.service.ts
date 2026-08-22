@@ -8,7 +8,7 @@ import { Repository } from 'typeorm';
 import { MailService } from '../mail/mail.service';
 import { WorkersService } from '../workers/workers.service';
 import { PdfService } from '../pdf/pdf.service';
-import { AuditoriaService } from '../auditoria/auditoria.service';
+import { AuditoriaService, type ActorAuditoria } from '../auditoria/auditoria.service';
 import { Boleta } from './boleta.entity';
 import { CreateBoletaDto } from './dto/create-boleta.dto';
 
@@ -27,17 +27,38 @@ export class BoletasService {
     accion: string,
     entidad: string,
     entidadId: number | null,
-    actor: { usuario?: string | null; ip?: string | null } | undefined,
+    actor: ActorAuditoria | undefined,
     detalle?: string,
   ) {
     await this.auditoria.registrar({
       usuario: actor?.usuario ?? null,
       ip: actor?.ip ?? null,
+      userAgent: actor?.userAgent ?? null,
       accion,
       entidad,
       entidadId,
       detalle: detalle ?? null,
     });
+  }
+
+  async auditoriaDe(id: number) {
+    return this.auditoria.listar({ entidad: 'boleta', entidadId: id });
+  }
+
+  async auditarCopiarLink(
+    id: number,
+    actor?: ActorAuditoria,
+  ) {
+    const boleta = await this.repo.findOne({ where: { id } });
+    if (!boleta) throw new NotFoundException('Boleta no encontrada');
+    await this.auditar(
+      'copiar_link',
+      'boleta',
+      id,
+      actor,
+      `Se copió el link de firma (boleta ${boleta.periodo})`,
+    );
+    return { ok: true };
   }
 
   private frontUrl(): string {
@@ -73,7 +94,7 @@ export class BoletasService {
 
   async create(
     dto: CreateBoletaDto,
-    actor?: { usuario?: string | null; ip?: string | null },
+    actor?: ActorAuditoria,
   ) {
     await this.workers.findOne(dto.trabajadorId);
 
@@ -119,7 +140,7 @@ export class BoletasService {
     trabajadorId: number,
     periodo: string,
     detalle: object,
-    actor?: { usuario?: string | null; ip?: string | null },
+    actor?: ActorAuditoria,
   ) {
     const anio = Number(periodo.slice(0, 4));
     const mes = Number(periodo.slice(4, 6));
@@ -304,7 +325,7 @@ export class BoletasService {
 
   async marcarEmailEnviado(
     id: number,
-    actor?: { usuario?: string | null; ip?: string | null },
+    actor?: ActorAuditoria,
   ) {
     const boleta = await this.repo.findOne({ where: { id } });
     if (!boleta) throw new NotFoundException('Boleta no encontrada');
@@ -326,7 +347,7 @@ export class BoletasService {
 
   async revertirFirma(
     id: number,
-    actor?: { usuario?: string | null; ip?: string | null },
+    actor?: ActorAuditoria,
   ) {
     const boleta = await this.repo.findOne({
       where: { id },
@@ -375,7 +396,7 @@ export class BoletasService {
 
   async enviarCorreo(
     id: number,
-    actor?: { usuario?: string | null; ip?: string | null },
+    actor?: ActorAuditoria,
   ) {
     const boleta = await this.repo.findOne({
       where: { id },
@@ -435,7 +456,7 @@ export class BoletasService {
 
   async enviarMasivo(
     ids: number[],
-    actor?: { usuario?: string | null; ip?: string | null },
+    actor?: ActorAuditoria,
   ) {
     let enviados = 0;
     let sinEmail = 0;
@@ -569,7 +590,7 @@ export class BoletasService {
 
   async remove(
     id: number,
-    actor?: { usuario?: string | null; ip?: string | null },
+    actor?: ActorAuditoria,
   ) {
     const boleta = await this.repo.findOne({ where: { id } });
     if (!boleta) throw new NotFoundException('Boleta no encontrada');

@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { AuditoriaService } from '../auditoria/auditoria.service';
+import { AuditoriaService, type ActorAuditoria } from '../auditoria/auditoria.service';
 
 @Injectable()
 export class SettingsService {
@@ -30,7 +30,7 @@ export class SettingsService {
 
   async guardar(
     dataUrl: string,
-    actor?: { usuario?: string | null; ip?: string | null },
+    actor?: ActorAuditoria,
   ) {
     const m = /^data:image\/png;base64,(.+)$/.exec(dataUrl);
     if (!m) {
@@ -46,6 +46,7 @@ export class SettingsService {
     await this.auditoria.registrar({
       usuario: actor?.usuario ?? null,
       ip: actor?.ip ?? null,
+      userAgent: actor?.userAgent ?? null,
       accion: 'actualizar_representante',
       entidad: 'configuracion',
       detalle: 'Se actualizó la firma del representante legal',
@@ -53,7 +54,7 @@ export class SettingsService {
     return { ok: true, guardado: true };
   }
 
-  async eliminar(actor?: { usuario?: string | null; ip?: string | null }) {
+  async eliminar(actor?: ActorAuditoria) {
     try {
       await fs.unlink(this.ruta());
     } catch {
@@ -62,6 +63,7 @@ export class SettingsService {
     await this.auditoria.registrar({
       usuario: actor?.usuario ?? null,
       ip: actor?.ip ?? null,
+      userAgent: actor?.userAgent ?? null,
       accion: 'eliminar_representante',
       entidad: 'configuracion',
       detalle: 'Se eliminó la firma del representante legal',

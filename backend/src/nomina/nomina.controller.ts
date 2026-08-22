@@ -15,7 +15,11 @@ import { NominaService } from './nomina.service';
 
 function actorDe(req: Request) {
   const user = req.user as { username?: string } | undefined;
-  return { usuario: user?.username ?? null, ip: req.ip ?? null };
+  return {
+    usuario: user?.username ?? null,
+    ip: req.ip ?? null,
+    userAgent: req.headers['user-agent'] ?? null,
+  };
 }
 
 @ApiTags('nomina')

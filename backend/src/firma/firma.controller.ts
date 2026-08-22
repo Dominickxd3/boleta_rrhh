@@ -24,7 +24,10 @@ export class FirmaController {
     @Param('token') token: string,
     @Body() dto: FirmarDto,
   ) {
-    return this.service.firmar(token, dto.firma, req.ip ?? null);
+    return this.service.firmar(token, dto.firma, {
+      ip: req.ip ?? null,
+      userAgent: req.headers['user-agent'] ?? null,
+    });
   }
 
   @Get('firma/:token/pdf')

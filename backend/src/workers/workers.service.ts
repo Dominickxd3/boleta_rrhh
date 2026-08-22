@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GghhService } from '../gghh/gghh.service';
-import { AuditoriaService } from '../auditoria/auditoria.service';
+import { AuditoriaService, type ActorAuditoria } from '../auditoria/auditoria.service';
 import { Worker } from './worker.entity';
 import { CreateWorkerDto, UpdateWorkerDto } from './dto/worker.dto';
 
@@ -18,11 +18,12 @@ export class WorkersService {
     accion: string,
     detalle: string,
     entidadId?: number,
-    actor?: { usuario?: string | null; ip?: string | null },
+    actor?: ActorAuditoria,
   ) {
     await this.auditoria.registrar({
       usuario: actor?.usuario ?? null,
       ip: actor?.ip ?? null,
+      userAgent: actor?.userAgent ?? null,
       accion,
       entidad: 'trabajador',
       entidadId: entidadId ?? null,
@@ -56,7 +57,7 @@ export class WorkersService {
 
   create(
     dto: CreateWorkerDto,
-    actor?: { usuario?: string | null; ip?: string | null },
+    actor?: ActorAuditoria,
   ): Promise<Worker> {
     const worker = this.repo.create({
       ...dto,
@@ -75,7 +76,7 @@ export class WorkersService {
   async update(
     id: number,
     dto: UpdateWorkerDto,
-    actor?: { usuario?: string | null; ip?: string | null },
+    actor?: ActorAuditoria,
   ): Promise<Worker> {
     const worker = await this.findOne(id);
     Object.assign(worker, dto);
@@ -93,7 +94,7 @@ export class WorkersService {
 
   async remove(
     id: number,
-    actor?: { usuario?: string | null; ip?: string | null },
+    actor?: ActorAuditoria,
   ): Promise<void> {
     const worker = await this.findOne(id);
     await this.auditar(

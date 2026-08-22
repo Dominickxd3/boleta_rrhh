@@ -26,6 +26,30 @@ import { nombreMes } from "@/lib/format";
 const moneda = (n: number) =>
   n.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+interface RegistroAuditoria {
+  id: number;
+  usuario: string | null;
+  accion: string;
+  entidad: string | null;
+  entidadId: number | null;
+  detalle: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  fecha: string;
+}
+
+const LABEL_ACCION: Record<string, string> = {
+  firma_boleta: "Firma de boleta",
+  enviar_correo: "Enviar correo",
+  envio_masivo: "Envío masivo",
+  revertir_firma: "Revertir firma",
+  marcar_email_enviado: "Marcar email enviado",
+  crear_boleta: "Crear boleta",
+  eliminar_boleta: "Eliminar boleta",
+  exportar_csv: "Exportar CSV",
+  copiar_link: "Copiar link",
+};
+
 export default function BoletasPage() {
   const ahora = new Date();
   const [anio, setAnio] = useState(String(ahora.getFullYear()));
@@ -43,6 +67,7 @@ export default function BoletasPage() {
   const POR_PAGINA = 10;
 
   const [vista, setVista] = useState<Boleta | null>(null);
+  const [auditoria, setAuditoria] = useState<RegistroAuditoria[]>([]);
   const [generando, setGenerando] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [seleccionadas, setSeleccionadas] = useState<Set<number>>(new Set());
@@ -87,6 +112,16 @@ export default function BoletasPage() {
   useEffect(() => {
     setPagina(1);
   }, [busqueda, areaFiltro, tab]);
+
+  useEffect(() => {
+    if (!vista) {
+      setAuditoria([]);
+      return;
+    }
+    apiFetch<RegistroAuditoria[]>(`/boletas/${vista.id}/auditoria`)
+      .then(setAuditoria)
+      .catch(() => setAuditoria([]));
+  }, [vista]);
 
   const boletas = useMemo(() => porArea.areas.flatMap((a) => a.boletas), [porArea]);
 
@@ -350,9 +385,14 @@ export default function BoletasPage() {
     }
   };
 
-  const copiar = async (texto: string, label: string) => {
+  const copiar = async (id: number | null, texto: string, label: string) => {
     try {
       await navigator.clipboard.writeText(texto);
+      if (id != null) {
+        apiFetch(`/boletas/${id}/copiar-link`, { method: "POST" }).catch(
+          () => undefined,
+        );
+      }
       await Swal.fire({
         icon: "success",
         title: "Copiado",
@@ -588,7 +628,7 @@ export default function BoletasPage() {
                       </button>
                       {b.urlFirma && (
                         <button
-                          onClick={() => copiar(b.urlFirma!, "Link de firma")}
+                          onClick={() => copiar(b.id, b.urlFirma!, "Link de firma")}
                           title="Copiar link de firma"
                           className={accionIcono}
                         >
@@ -776,11 +816,55 @@ export default function BoletasPage() {
                   </div>
                 </>
               )}
+
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase mb-1">
+                  Auditoría de la boleta
+                </p>
+                {auditoria.length > 0 ? (
+                  <div className="max-h-44 overflow-y-auto rounded-lg border divide-y divide-gray-100">
+                    {auditoria.map((a) => (
+                      <div key={a.id} className="px-3 py-2 text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium">
+                            {LABEL_ACCION[a.accion] || a.accion}
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            {new Date(a.fecha).toLocaleString("es-PE")}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          Usuario: <b>{a.usuario || "—"}</b> · IP:{" "}
+                          <b>{a.ip || "—"}</b>
+                          {a.userAgent ? (
+                            <>
+                              {" "}
+                              · Dispositivo:{" "}
+                              <b>
+                                {/Mobi|Android|iPhone|iPad|iPod/i.test(
+                                  a.userAgent,
+                                )
+                                  ? "Celular"
+                                  : "Computadora"}
+                              </b>
+                            </>
+                          ) : null}
+                          {a.detalle ? ` · ${a.detalle}` : ""}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400">
+                    Sin registros de auditoría
+                  </p>
+                )}
+              </div>
             </div>
             <div className="flex justify-end border-t border-gray-100 px-5 py-4">
               {vista.urlFirma && (
                 <button
-                  onClick={() => copiar(vista.urlFirma!, "Link de firma")}
+                  onClick={() => copiar(vista.id, vista.urlFirma!, "Link de firma")}
                   className="mr-auto inline-flex items-center gap-2 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
                 >
                   <Link2 className="h-4 w-4" />

@@ -12,6 +12,9 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   login(@Req() req: Request, @Body() dto: LoginDto) {
-    return this.auth.login(dto.username, dto.password, req.ip ?? null);
+    return this.auth.login(dto.username, dto.password, {
+      ip: req.ip ?? null,
+      userAgent: req.headers['user-agent'] ?? null,
+    });
   }
 }
