@@ -12,3 +12,5 @@ Thumbs.db
 .idea/
 .vscode/
 coverage/
+winsw.exe
+winsw-*.xml
