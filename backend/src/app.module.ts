@@ -30,7 +30,8 @@ import { AppService } from './app.service';
         password: config.get<string>('DB_PASSWORD', ''),
         database: config.get<string>('DB_NAME', 'BoletaRRHH'),
         entities: [User, Worker, Boleta, Auditoria],
-        synchronize: true,
+        // En producción deshabilítalo (DB_SYNCHRONIZE=false) una vez el esquema esté creado.
+        synchronize: config.get<string>('DB_SYNCHRONIZE', 'true') === 'true',
         options: {
           encrypt: false,
           trustServerCertificate: true,

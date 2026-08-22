@@ -10,7 +10,8 @@
     "dev:frontend": "npm run dev --workspace @boleta/web",
     "build:backend": "npm run build --workspace @boleta/api",
     "build:frontend": "npm run build --workspace @boleta/web",
-    "start:backend": "npm run start:prod --workspace @boleta/api"
+    "start:backend": "npm run start:prod --workspace @boleta/api",
+    "start:frontend": "npm run start --workspace @boleta/web"
   },
   "dependencies": {
     "@cantoo/pdf-lib": "^1.21.1",
