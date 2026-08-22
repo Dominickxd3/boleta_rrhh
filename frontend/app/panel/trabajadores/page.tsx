@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Building2, Eye, Pencil, RefreshCw, Users, X } from "lucide-react";
 import Swal from "sweetalert2";
 import { apiFetch } from "@/lib/api";
+import AreaSelect from "@/components/AreaSelect";
 import { SincronizarTrabajadoresResultado, Worker } from "@/lib/types";
 
 interface FormState {
@@ -332,20 +333,14 @@ export default function TrabajadoresPage() {
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
           placeholder="Buscar por nombre o DNI…"
-          className="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          className="w-full sm:max-w-xs rounded-lg border border-gray-300 px-3 py-2 text-sm"
         />
-        <select
+        <AreaSelect
           value={areaFiltro}
-          onChange={(e) => setAreaFiltro(e.target.value)}
-          className="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-2 text-sm"
-        >
-          <option value="">Todas las áreas</option>
-          {areas.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
+          onChange={setAreaFiltro}
+          areas={areas}
+          className="w-full sm:max-w-xs"
+        />
       </div>
 
       {error && (
@@ -354,17 +349,100 @@ export default function TrabajadoresPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow overflow-hidden">
+      <div className="space-y-3 md:hidden">
+        {paginados.map((w) => (
+          <div key={w.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-neutral-900">
+                  {w.nombreCompleto}
+                </p>
+                <p className="text-xs text-gray-500">DNI {w.dni}</p>
+                {w.area && <p className="mt-0.5 truncate text-xs text-gray-500">{w.area}</p>}
+                {w.cargo && (
+                  <p className="truncate text-xs text-gray-500">{w.cargo}</p>
+                )}
+              </div>
+              {w.activo ? (
+                <span className="inline-flex shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                  Activo
+                </span>
+              ) : (
+                <span className="inline-flex shrink-0 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600">
+                  Inactivo
+                </span>
+              )}
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <div className="min-w-0 text-xs text-gray-500">
+                {w.email ? (
+                  <p className="truncate">{w.email}</p>
+                ) : (
+                  <p className="text-gray-400">Sin email</p>
+                )}
+                <p>{w.telefono || "—"}</p>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  onClick={() => setVisto(w)}
+                  title="Ver datos"
+                  className="rounded-lg bg-gray-100 p-1.5 text-gray-700 hover:bg-gray-200"
+                >
+                  <Eye className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => editar(w)}
+                  title="Editar"
+                  className="rounded-lg bg-gray-100 p-1.5 text-gray-700 hover:bg-gray-200"
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {visibles.length === 0 && (
+          <p className="rounded-xl bg-white px-4 py-8 text-center text-sm text-gray-400">
+            No hay trabajadores que coincidan con el filtro
+          </p>
+        )}
+        {visibles.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
+            <p className="text-sm text-gray-500">
+              Página {pagina} de {totalPaginas}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPagina((p) => Math.max(1, p - 1))}
+                disabled={pagina <= 1}
+                className="rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <button
+                onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
+                disabled={pagina >= totalPaginas}
+                className="rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ====== Tabla (escritorio) ====== */}
+      <div className="hidden bg-white rounded-xl shadow overflow-hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-600">
               <tr>
                 <th className="text-left px-4 py-2">DNI</th>
                 <th className="text-left px-4 py-2">Nombre completo</th>
-                <th className="text-left px-4 py-2">Área</th>
-                <th className="text-left px-4 py-2">Cargo</th>
-                <th className="text-left px-4 py-2">Email</th>
-                <th className="text-left px-4 py-2">Teléfono</th>
+                <th className="hidden md:table-cell text-left px-4 py-2">Área</th>
+                <th className="hidden md:table-cell text-left px-4 py-2">Cargo</th>
+                <th className="hidden lg:table-cell text-left px-4 py-2">Email</th>
+                <th className="hidden lg:table-cell text-left px-4 py-2">Teléfono</th>
                 <th className="text-left px-4 py-2">Acciones</th>
               </tr>
             </thead>
@@ -373,10 +451,10 @@ export default function TrabajadoresPage() {
                 <tr key={w.id} className="hover:bg-gray-50">
                   <td className="px-4 py-2">{w.dni}</td>
                   <td className="px-4 py-2">{w.nombreCompleto}</td>
-                  <td className="px-4 py-2 text-gray-500">{w.area || "—"}</td>
-                  <td className="px-4 py-2 text-gray-500">{w.cargo || "—"}</td>
-                  <td className="px-4 py-2">{w.email || "—"}</td>
-                  <td className="px-4 py-2">{w.telefono || "—"}</td>
+                  <td className="hidden md:table-cell px-4 py-2 text-gray-500">{w.area || "—"}</td>
+                  <td className="hidden md:table-cell px-4 py-2 text-gray-500">{w.cargo || "—"}</td>
+                  <td className="hidden lg:table-cell px-4 py-2">{w.email || "—"}</td>
+                  <td className="hidden lg:table-cell px-4 py-2">{w.telefono || "—"}</td>
                   <td className="px-4 py-2">
                     <div className="flex gap-2">
                       <button

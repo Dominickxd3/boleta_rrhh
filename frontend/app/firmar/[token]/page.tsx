@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { Clock } from "lucide-react";
 import { apiFetch, API_URL } from "@/lib/api";
 import SignatureOnDocument from "@/components/SignatureOnDocument";
 import FloatingToolbar, { Icons } from "@/components/FloatingToolbar";
 import type { InlineSignatureHandle } from "@/components/InlineSignature";
 import BoletaBloques from "@/components/BoletaBloques";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { fechaLarga } from "@/lib/format";
 import { Detalle } from "@/lib/types";
 
 interface InfoFirma {
@@ -37,6 +37,41 @@ const ZOOM_STEP = 0.1;
 // Bloqueo por inactividad: si el usuario deja la pestaña abierta sin tocar nada,
 // se bloquea la firma para no dejar enlaces abiertos indefinidamente.
 const INACTIVIDAD_MS = 15 * 60 * 1000;
+
+function VigenciaEnlace({ expira }: { expira: string }) {
+  const fecha = new Date(expira);
+  const ahora = new Date();
+  const ms = Math.max(0, fecha.getTime() - ahora.getTime());
+  const horas = Math.floor(ms / 3600000);
+  const dias = Math.floor(horas / 24);
+  const horasResto = horas % 24;
+  const texto = dias > 0 ? `${dias} d ${horasResto} h` : `${horas} h`;
+
+  return (
+    <div className="mx-auto flex w-fit max-w-full items-center gap-3 rounded-2xl border border-amber-200/70 bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 px-4 py-2.5 shadow-sm">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-600">
+        <Clock className="h-5 w-5" />
+      </span>
+      <div className="min-w-0 leading-tight">
+        <p className="text-[10px] font-medium uppercase tracking-wide text-amber-600/80">
+          Enlace válido hasta
+        </p>
+        <p className="truncate text-sm font-semibold text-neutral-800">
+          {fecha.toLocaleString("es-PE", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </p>
+      </div>
+      <span className="shrink-0 rounded-full bg-amber-500 px-2.5 py-1 text-[11px] font-bold text-white shadow-sm">
+        Vence en {texto}
+      </span>
+    </div>
+  );
+}
 
 export default function FirmarPage() {
   const { token } = useParams<{ token: string }>();
@@ -440,9 +475,8 @@ export default function FirmarPage() {
       >
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
           {info!.firmaExpira && (
-            <div className="mb-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
-              Este enlace es válido hasta el{" "}
-              <b>{fechaLarga(info!.firmaExpira)}</b>.
+            <div className="mb-3">
+              <VigenciaEnlace expira={info!.firmaExpira} />
             </div>
           )}
           <BoletaBloques
@@ -484,10 +518,7 @@ export default function FirmarPage() {
     <main className="min-h-screen bg-neutral-100 py-6">
       <div className="mx-auto max-w-3xl px-4 pb-2">
         {info!.firmaExpira && (
-          <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
-            Este enlace es válido hasta el{" "}
-            <b>{fechaLarga(info!.firmaExpira)}</b>.
-          </div>
+          <VigenciaEnlace expira={info!.firmaExpira} />
         )}
       </div>
       <div className="flex justify-center overflow-auto px-4">

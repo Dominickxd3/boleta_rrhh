@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import Swal from "sweetalert2";
 import { apiFetch, API_URL, getToken } from "@/lib/api";
+import AreaSelect from "@/components/AreaSelect";
 import {
   Boleta,
   EnviarMasivoResultado,
@@ -472,20 +473,14 @@ export default function BoletasPage() {
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
           placeholder="Buscar por nombre o DNI…"
-          className="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          className="w-full sm:max-w-xs rounded-lg border border-gray-300 px-3 py-2 text-sm"
         />
-        <select
+        <AreaSelect
           value={areaFiltro}
-          onChange={(e) => setAreaFiltro(e.target.value)}
-          className="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-2 text-sm"
-        >
-          <option value="">Todas las áreas</option>
-          {areas.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
+          onChange={setAreaFiltro}
+          areas={areas}
+          className="w-full sm:max-w-xs"
+        />
         <button
           onClick={exportar}
           className="ml-auto inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 font-medium hover:bg-gray-50"
@@ -529,8 +524,151 @@ export default function BoletasPage() {
         )}
       </div>
 
-      {/* ====== Tabla ====== */}
-      <div className="bg-white rounded-xl shadow overflow-hidden">
+      {/* ====== Tarjetas (móvil) ====== */}
+      <div className="space-y-3 md:hidden">
+        <label className="flex items-center gap-2 px-1 text-sm font-medium text-gray-700">
+          <input
+            type="checkbox"
+            checked={
+              pendientesVisibles.length > 0 &&
+              pendientesVisibles.every((b) => seleccionadas.has(b.id))
+            }
+            onChange={(e) => toggleTodos(e.target.checked)}
+            className="h-4 w-4"
+          />
+          Seleccionar pendientes
+        </label>
+        {paginados.map((b) => (
+          <div
+            key={b.id}
+            className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-neutral-900">
+                  {b.trabajador.nombreCompleto}
+                </p>
+                <p className="text-xs text-gray-500">
+                  DNI {b.trabajador.dni} · Periodo {b.periodo}
+                </p>
+                {b.trabajador.area && (
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    {b.trabajador.area}
+                  </p>
+                )}
+              </div>
+              {b.estado === "FIRMADA" ? (
+                <span className="inline-flex shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                  Firmada
+                </span>
+              ) : (
+                <span className="inline-flex shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                  Pendiente
+                </span>
+              )}
+            </div>
+
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={seleccionadas.has(b.id)}
+                  onChange={() => toggleSeleccion(b.id)}
+                  className="h-4 w-4"
+                  aria-label="Seleccionar boleta"
+                />
+                {b.emailEnviado ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                    <BadgeCheck className="h-3 w-3" /> Enviado
+                  </span>
+                ) : (
+                  <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
+                    No enviado
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button
+                  onClick={() => setVista(b)}
+                  title="Ver detalle"
+                  className={accionIcono}
+                >
+                  <Eye className="h-4 w-4" />
+                </button>
+                {b.urlFirma && (
+                  <button
+                    onClick={() => copiar(b.id, b.urlFirma!, "Link de firma")}
+                    title="Copiar link"
+                    className={accionIcono}
+                  >
+                    <Link2 className="h-4 w-4" />
+                  </button>
+                )}
+                {b.estado === "FIRMADA" && b.urlVer && (
+                  <a
+                    href={b.urlVer}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Ver documento firmado"
+                    className={accionIcono}
+                  >
+                    <FileCheck2 className="h-4 w-4" />
+                  </a>
+                )}
+                {b.estado === "FIRMADA" && (
+                  <button
+                    onClick={() => revertirFirma(b)}
+                    title="Revertir firma"
+                    className={accionIcono}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </button>
+                )}
+                {b.estado !== "FIRMADA" && (
+                  <button
+                    onClick={() => enviarCorreo(b)}
+                    title={b.emailEnviado ? "Reenviar correo" : "Enviar correo"}
+                    className={accionIcono}
+                  >
+                    <Send className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+        {visibles.length === 0 && (
+          <p className="rounded-xl bg-white px-4 py-8 text-center text-sm text-gray-400">
+            No hay boletas que coincidan con los filtros
+          </p>
+        )}
+        {visibles.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
+            <p className="text-sm text-gray-500">
+              Página {pagina} de {totalPaginas}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPagina((p) => Math.max(1, p - 1))}
+                disabled={pagina <= 1}
+                className="rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <button
+                onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
+                disabled={pagina >= totalPaginas}
+                className="rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ====== Tabla (escritorio) ====== */}
+      <div className="hidden bg-white rounded-xl shadow overflow-hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-600">
@@ -548,8 +686,9 @@ export default function BoletasPage() {
                 </th>
                 <th className="text-left px-4 py-2">DNI</th>
                 <th className="text-left px-4 py-2">Trabajador</th>
-                <th className="text-left px-4 py-2">Área</th>
+                <th className="hidden md:table-cell text-left px-4 py-2">Área</th>
                 <th className="text-left px-4 py-2">Estado</th>
+                <th className="text-left px-4 py-2">Correo</th>
                 <th className="text-left px-4 py-2">Acciones</th>
               </tr>
             </thead>
@@ -568,7 +707,7 @@ export default function BoletasPage() {
                   <td className="px-4 py-2 font-medium">
                     {b.trabajador.nombreCompleto}
                   </td>
-                  <td className="px-4 py-2 text-gray-500">
+                  <td className="hidden md:table-cell px-4 py-2 text-gray-500">
                     {b.trabajador.area || "—"}
                   </td>
                   <td className="px-4 py-2">
@@ -579,6 +718,17 @@ export default function BoletasPage() {
                     ) : (
                       <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
                         Pendiente
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2">
+                    {b.emailEnviado ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                        <BadgeCheck className="h-3 w-3" /> Enviado
+                      </span>
+                    ) : (
+                      <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
+                        No enviado
                       </span>
                     )}
                   </td>

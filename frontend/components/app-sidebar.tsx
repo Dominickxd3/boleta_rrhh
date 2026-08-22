@@ -125,8 +125,11 @@ export function AppSidebar() {
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" className="h-14 group-data-[collapsible=icon]:h-10">
-              <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-white">
+            <SidebarMenuButton
+              size="lg"
+              className="h-auto flex-col items-center gap-2 py-3 group-data-[collapsible=icon]:h-10 group-data-[collapsible=icon]:justify-center"
+            >
+              <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white shadow-sm">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src="/logo_gp.png"
@@ -134,12 +137,9 @@ export function AppSidebar() {
                   className="h-full w-full object-contain"
                 />
               </div>
-              <div className="flex flex-col gap-0.5 leading-none text-left group-data-[collapsible=icon]:hidden">
-                <span className="text-base font-semibold">Boletas RRHH</span>
-                <span className="text-xs text-muted-foreground">
-                  Portal de RR.HH.
-                </span>
-              </div>
+              <span className="text-center text-[15px] font-bold leading-tight text-sidebar-foreground group-data-[collapsible=icon]:hidden">
+                BoletasGP
+              </span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -160,9 +160,9 @@ export function AppSidebar() {
                       render={<Link href={item.url} />}
                       isActive={activo}
                       tooltip={item.title}
-                      className="text-base"
+                      className="text-lg"
                     >
-                      <item.icon className="size-5" />
+                      <item.icon className="size-6" />
                       <span>{item.title}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -192,10 +192,10 @@ export function AppSidebar() {
                   }}
                 />
                 <div className="flex flex-col gap-0.5 leading-none text-left group-data-[collapsible=icon]:hidden">
-                  <span className="max-w-36 truncate text-sm font-semibold">
+                  <span className="max-w-36 truncate text-base font-semibold">
                     {usuario?.nombre || "Usuario"}
                   </span>
-                  <span className="max-w-36 truncate text-xs text-muted-foreground">
+                  <span className="max-w-36 truncate text-sm text-muted-foreground">
                     {etiquetaRol(usuario?.rol || "")}
                   </span>
                 </div>

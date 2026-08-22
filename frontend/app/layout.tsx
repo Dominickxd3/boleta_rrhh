@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Boletas RRHH",
+  title: "BoletasGP",
   description: "Sistema de boletas de pago y firma de trabajadores",
   icons: {
     icon: "/logo_gp.png",

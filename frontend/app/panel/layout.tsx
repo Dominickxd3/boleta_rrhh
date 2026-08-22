@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { clearToken, clearUsuario, getToken } from "@/lib/api";
 import { AppSidebar } from "@/components/app-sidebar";
 import {
@@ -12,13 +12,36 @@ import {
 
 const INACTIVIDAD_MS = 5 * 60 * 1000;
 
+const TITULOS: Record<string, string> = {
+  "/panel": "Inicio",
+  "/panel/trabajadores": "Trabajadores",
+  "/panel/boletas": "Boletas",
+  "/panel/configuracion": "Configuración",
+};
+
 export default function PanelLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [inactividad, setInactividad] = useState(false);
+
+  useEffect(() => {
+    const pagina = TITULOS[pathname] || "Panel";
+    const aplicar = () => {
+      document.title = `${pagina} · BoletasGP`;
+    };
+    aplicar();
+    // Next.js reaplica los metadatos después del render; reafirmamos en ticks posteriores
+    const id1 = setTimeout(aplicar, 100);
+    const id2 = setTimeout(aplicar, 500);
+    return () => {
+      clearTimeout(id1);
+      clearTimeout(id2);
+    };
+  }, [pathname]);
 
   useEffect(() => {
     if (!getToken()) {

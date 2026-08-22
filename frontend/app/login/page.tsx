@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import Swal from "sweetalert2";
@@ -8,7 +8,7 @@ import { loginRequest, setToken, setUsuario } from "@/lib/api";
 
 const WHATSAPP_SISTEMAS = "51922386045";
 const MSG_RECUPERAR =
-  "Hola, necesito recuperar mi contraseña del sistema de Boletas RRHH. ¿Me pueden ayudar?";
+  "Hola, necesito recuperar mi contraseña del sistema BoletasGP. ¿Me pueden ayudar?";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -17,6 +17,19 @@ export default function LoginPage() {
   const [ver, setVer] = useState(false);
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(false);
+
+  useEffect(() => {
+    const aplicar = () => {
+      document.title = "Inicio de sesión · BoletasGP";
+    };
+    aplicar();
+    const id1 = setTimeout(aplicar, 100);
+    const id2 = setTimeout(aplicar, 500);
+    return () => {
+      clearTimeout(id1);
+      clearTimeout(id2);
+    };
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,7 +67,7 @@ export default function LoginPage() {
           />
         </div>
         <h1 className="text-2xl font-bold text-center text-gray-900">
-          Boletas RRHH
+          BoletasGP
         </h1>
         <p className="text-sm text-gray-500 text-center mt-1 mb-6">
           Portal de Recursos Humanos
