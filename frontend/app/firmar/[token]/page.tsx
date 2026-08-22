@@ -9,6 +9,7 @@ import FloatingToolbar, { Icons } from "@/components/FloatingToolbar";
 import type { InlineSignatureHandle } from "@/components/InlineSignature";
 import BoletaBloques from "@/components/BoletaBloques";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { fechaLarga } from "@/lib/format";
 import { Detalle } from "@/lib/types";
 
 interface InfoFirma {
@@ -20,6 +21,7 @@ interface InfoFirma {
   mes: number;
   estado: string;
   yaFirmada: boolean;
+  firmaExpira: string | null;
   detalle: Detalle;
 }
 
@@ -437,6 +439,12 @@ export default function FirmarPage() {
         style={{ height: "100dvh" }}
       >
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+          {info!.firmaExpira && (
+            <div className="mb-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+              Este enlace es válido hasta el{" "}
+              <b>{fechaLarga(info!.firmaExpira)}</b>.
+            </div>
+          )}
           <BoletaBloques
             ref={sigRef}
             detalle={info!.detalle}
@@ -474,6 +482,14 @@ export default function FirmarPage() {
 
   return (
     <main className="min-h-screen bg-neutral-100 py-6">
+      <div className="mx-auto max-w-3xl px-4 pb-2">
+        {info!.firmaExpira && (
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+            Este enlace es válido hasta el{" "}
+            <b>{fechaLarga(info!.firmaExpira)}</b>.
+          </div>
+        )}
+      </div>
       <div className="flex justify-center overflow-auto px-4">
         <div
           className="origin-top transition-transform duration-200"

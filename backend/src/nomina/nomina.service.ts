@@ -385,17 +385,23 @@ export class NominaService {
     const rows = await this.leerDetalleLocal(anomes, correl);
     const grupos = this.agrupar(rows);
 
+    // Pre-cargar trabajadores existentes (evita una consulta por grupo)
+    const trabajadoresExistentes = await this.workers.findAll();
+    const porDni = new Map(
+      trabajadoresExistentes.map((w) => [w.dni, w]),
+    );
+
     let trabajadoresCreados = 0;
     let boletasGeneradas = 0;
     let boletasOmitidas = 0;
-    const boletas = [];
+    const boletas: object[] = [];
 
-    for (const [, filas] of grupos) {
+    const procesarGrupo = async (filas: Fila[]) => {
       const f0 = filas[0];
       const dni = this.txt(f0.tra_nrodni);
       const area = this.txt(f0.cc_descri);
 
-      let worker = await this.workers.findByDni(dni);
+      let worker = porDni.get(dni);
       if (!worker) {
         worker = await this.workers.create({
           dni,
@@ -404,9 +410,13 @@ export class NominaService {
           apellidoMaterno: this.txt(f0.tra_apemat),
           area: area || undefined,
         });
+        porDni.set(dni, worker);
         trabajadoresCreados++;
       } else if (area && worker.area !== area) {
-        worker = await this.workers.update(worker.id, { area, activo: true });
+        worker = await this.workers.update(worker.id, {
+          area,
+          activo: true,
+        });
       } else if (!worker.activo) {
         worker = await this.workers.update(worker.id, { activo: true });
       }
@@ -423,7 +433,22 @@ export class NominaService {
       } else {
         boletasOmitidas++;
       }
-    }
+    };
+
+    // Procesar en paralelo con concurrencia limitada
+    const gruposArr = Array.from(grupos.values());
+    const CONCURRENCIA = 10;
+    let indice = 0;
+    const cola = Array.from(
+      { length: Math.min(CONCURRENCIA, gruposArr.length) },
+      async () => {
+        while (indice < gruposArr.length) {
+          const filas = gruposArr[indice++];
+          await procesarGrupo(filas);
+        }
+      },
+    );
+    await Promise.all(cola);
 
     this.logger.log(
       `Importación ${anomes}/${correl}: ${grupos.size} trabajadores, ${boletasGeneradas} boletas nuevas, ${boletasOmitidas} omitidas, ${trabajadoresCreados} trabajadores creados`,

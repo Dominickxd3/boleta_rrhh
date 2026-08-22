@@ -65,6 +65,7 @@ export class FirmaService {
       mes: boleta.mes,
       estado: boleta.estado,
       yaFirmada: boleta.estado === 'FIRMADA',
+      firmaExpira: boleta.firmaExpira,
       detalle: this.boletas.leerDetalle(boleta),
     };
   }
