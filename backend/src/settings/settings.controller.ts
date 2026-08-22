@@ -5,13 +5,19 @@ import {
   Get,
   NotFoundException,
   Post,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SettingsService } from './settings.service';
+
+function actorDe(req: Request) {
+  const user = req.user as { username?: string } | undefined;
+  return { usuario: user?.username ?? null, ip: req.ip ?? null };
+}
 
 @ApiTags('settings')
 @Controller('settings')
@@ -31,16 +37,16 @@ export class SettingsController {
 
   @UseGuards(JwtAuthGuard)
   @Post('representante-firma')
-  guardar(@Body() body: { imagen?: string }) {
+  guardar(@Req() req: Request, @Body() body: { imagen?: string }) {
     if (!body?.imagen) {
       throw new NotFoundException('Falta la imagen');
     }
-    return this.service.guardar(body.imagen);
+    return this.service.guardar(body.imagen, actorDe(req));
   }
 
   @UseGuards(JwtAuthGuard)
   @Delete('representante-firma')
-  eliminar() {
-    return this.service.eliminar();
+  eliminar(@Req() req: Request) {
+    return this.service.eliminar(actorDe(req));
   }
 }

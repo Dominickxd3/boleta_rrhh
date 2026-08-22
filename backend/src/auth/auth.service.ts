@@ -15,7 +15,7 @@ export class AuthService {
     private readonly auditoria: AuditoriaService,
   ) {}
 
-  async login(username: string, password: string) {
+  async login(username: string, password: string, ip?: string | null) {
     const logon = (username || '').trim();
 
     // 1) Validar contra el ERP (MA001020) vía sp_validar_login_erp (swAcceso = 1)
@@ -31,6 +31,7 @@ export class AuthService {
         const payload = { sub: -1, username: logon, rol };
         await this.auditoria.registrar({
           usuario: logon,
+          ip: ip ?? null,
           accion: 'login',
           detalle: `Login ERP: ${nombre}`,
         });
@@ -48,6 +49,7 @@ export class AuthService {
     if (user && (await bcrypt.compare(password, user.passwordHash))) {
       await this.auditoria.registrar({
         usuario: user.username,
+        ip: ip ?? null,
         accion: 'login',
         detalle: 'Login local',
       });
@@ -69,6 +71,7 @@ export class AuthService {
 
     await this.auditoria.registrar({
       usuario: logon || null,
+      ip: ip ?? null,
       accion: 'login_fallido',
       detalle: 'Credenciales incorrectas',
     });

@@ -8,15 +8,21 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { BoletasService } from './boletas.service';
 import { CreateBoletaDto } from './dto/create-boleta.dto';
 import { EnviarMasivoDto } from './dto/enviar-masivo.dto';
+
+function actorDe(req: Request) {
+  const user = req.user as { username?: string } | undefined;
+  return { usuario: user?.username ?? null, ip: req.ip ?? null };
+}
 
 @ApiTags('boletas')
 @ApiBearerAuth()
@@ -35,8 +41,8 @@ export class BoletasController {
   }
 
   @Get('exportar')
-  
   async exportar(
+    @Req() req: Request,
     @Res() res: Response,
     @Query('anio') anio?: string,
     @Query('mes') mes?: string,
@@ -47,6 +53,7 @@ export class BoletasController {
       mes,
       soloPendientes,
     });
+    await this.service.auditar('exportar_csv', 'boleta', null, actorDe(req), `Exportó boletas ${anio ?? ''}-${mes ?? ''}`);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
     res.send(contenido);
@@ -77,27 +84,23 @@ export class BoletasController {
   }
 
   @Patch(':id/email-enviado')
-  
-  marcarEmailEnviado(@Param('id', ParseIntPipe) id: number) {
-    return this.service.marcarEmailEnviado(id);
+  marcarEmailEnviado(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
+    return this.service.marcarEmailEnviado(id, actorDe(req));
   }
 
   @Post('enviar-masivo')
-  
-  enviarMasivo(@Body() dto: EnviarMasivoDto) {
-    return this.service.enviarMasivo(dto.ids);
+  enviarMasivo(@Req() req: Request, @Body() dto: EnviarMasivoDto) {
+    return this.service.enviarMasivo(dto.ids, actorDe(req));
   }
 
   @Post(':id/enviar-correo')
-  
-  enviarCorreo(@Param('id', ParseIntPipe) id: number) {
-    return this.service.enviarCorreo(id);
+  enviarCorreo(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
+    return this.service.enviarCorreo(id, actorDe(req));
   }
 
   @Post(':id/revertir-firma')
-  
-  revertirFirma(@Param('id', ParseIntPipe) id: number) {
-    return this.service.revertirFirma(id);
+  revertirFirma(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
+    return this.service.revertirFirma(id, actorDe(req));
   }
 
   @Get(':id')
@@ -115,14 +118,12 @@ export class BoletasController {
   }
 
   @Post()
-  
-  create(@Body() dto: CreateBoletaDto) {
-    return this.service.create(dto);
+  create(@Req() req: Request, @Body() dto: CreateBoletaDto) {
+    return this.service.create(dto, actorDe(req));
   }
 
   @Delete(':id')
-  
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.service.remove(id);
+  remove(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
+    return this.service.remove(id, actorDe(req));
   }
 }

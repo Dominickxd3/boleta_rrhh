@@ -1,8 +1,22 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ImportarNominaDto } from './dto/importar-nomina.dto';
 import { NominaService } from './nomina.service';
+
+function actorDe(req: Request) {
+  const user = req.user as { username?: string } | undefined;
+  return { usuario: user?.username ?? null, ip: req.ip ?? null };
+}
 
 @ApiTags('nomina')
 @ApiBearerAuth()
@@ -22,8 +36,8 @@ export class NominaController {
   }
 
   @Post('sincronizar')
-  sincronizar(@Body() dto: ImportarNominaDto) {
-    return this.service.sincronizar(dto.anomes, dto.correl);
+  sincronizar(@Req() req: Request, @Body() dto: ImportarNominaDto) {
+    return this.service.sincronizar(dto.anomes, dto.correl, actorDe(req));
   }
 
   @Get('boletas')
@@ -35,12 +49,12 @@ export class NominaController {
   }
 
   @Post('importar')
-  importar(@Body() dto: ImportarNominaDto) {
-    return this.service.importar(dto.anomes, dto.correl);
+  importar(@Req() req: Request, @Body() dto: ImportarNominaDto) {
+    return this.service.importar(dto.anomes, dto.correl, actorDe(req));
   }
 
   @Post('generar')
-  generar(@Body() dto: ImportarNominaDto) {
-    return this.service.generar(dto.anomes, dto.correl);
+  generar(@Req() req: Request, @Body() dto: ImportarNominaDto) {
+    return this.service.generar(dto.anomes, dto.correl, actorDe(req));
   }
 }

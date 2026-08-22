@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, Post, Res } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, Res } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { BoletasService } from '../boletas/boletas.service';
 import { FirmaService } from './firma.service';
 import { FirmarDto } from './dto/firmar.dto';
@@ -19,8 +19,12 @@ export class FirmaController {
   }
 
   @Post('firma/:token')
-  firmar(@Param('token') token: string, @Body() dto: FirmarDto) {
-    return this.service.firmar(token, dto.firma);
+  firmar(
+    @Req() req: Request,
+    @Param('token') token: string,
+    @Body() dto: FirmarDto,
+  ) {
+    return this.service.firmar(token, dto.firma, req.ip ?? null);
   }
 
   @Get('firma/:token/pdf')

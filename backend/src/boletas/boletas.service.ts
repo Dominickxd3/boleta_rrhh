@@ -23,6 +23,23 @@ export class BoletasService {
     private readonly auditoria: AuditoriaService,
   ) {}
 
+  async auditar(
+    accion: string,
+    entidad: string,
+    entidadId: number | null,
+    actor: { usuario?: string | null; ip?: string | null } | undefined,
+    detalle?: string,
+  ) {
+    await this.auditoria.registrar({
+      usuario: actor?.usuario ?? null,
+      ip: actor?.ip ?? null,
+      accion,
+      entidad,
+      entidadId,
+      detalle: detalle ?? null,
+    });
+  }
+
   private frontUrl(): string {
     return this.config.get<string>('FRONT_URL', 'http://localhost:3000');
   }
@@ -54,7 +71,10 @@ export class BoletasService {
     };
   }
 
-  async create(dto: CreateBoletaDto) {
+  async create(
+    dto: CreateBoletaDto,
+    actor?: { usuario?: string | null; ip?: string | null },
+  ) {
     await this.workers.findOne(dto.trabajadorId);
 
     const periodo = dto.periodo;
@@ -81,8 +101,17 @@ export class BoletasService {
       tokenFirma: this.generarToken(),
       tokenVer: this.generarToken(),
       firmaExpira: this.fechaExpiracion(),
+      creadoPor: actor?.usuario ?? null,
+      creadoIp: actor?.ip ?? null,
     });
     const guardada = await this.repo.save(boleta);
+    await this.auditar(
+      'crear_boleta',
+      'boleta',
+      guardada.id,
+      actor,
+      `Boleta ${periodo}`,
+    );
     return this.conUrls(guardada);
   }
 
@@ -90,6 +119,7 @@ export class BoletasService {
     trabajadorId: number,
     periodo: string,
     detalle: object,
+    actor?: { usuario?: string | null; ip?: string | null },
   ) {
     const anio = Number(periodo.slice(0, 4));
     const mes = Number(periodo.slice(4, 6));
@@ -101,6 +131,9 @@ export class BoletasService {
       const nuevoJson = JSON.stringify(detalle);
       if (existente.detalleJson !== nuevoJson) {
         existente.detalleJson = nuevoJson;
+        existente.modificadoPor = actor?.usuario ?? null;
+        existente.modificadoIp = actor?.ip ?? null;
+        existente.modificadoEn = new Date();
         await this.repo.save(existente);
       }
       return null;
@@ -116,6 +149,8 @@ export class BoletasService {
       tokenFirma: this.generarToken(),
       tokenVer: this.generarToken(),
       firmaExpira: this.fechaExpiracion(),
+      creadoPor: actor?.usuario ?? null,
+      creadoIp: actor?.ip ?? null,
     });
     const guardada = await this.repo.save(boleta);
     return this.conUrls(guardada);
@@ -267,16 +302,32 @@ export class BoletasService {
     return { total: boletas.length, areas };
   }
 
-  async marcarEmailEnviado(id: number) {
+  async marcarEmailEnviado(
+    id: number,
+    actor?: { usuario?: string | null; ip?: string | null },
+  ) {
     const boleta = await this.repo.findOne({ where: { id } });
     if (!boleta) throw new NotFoundException('Boleta no encontrada');
     boleta.emailEnviado = true;
     boleta.fechaEmail = new Date();
+    boleta.modificadoPor = actor?.usuario ?? null;
+    boleta.modificadoIp = actor?.ip ?? null;
+    boleta.modificadoEn = new Date();
     const guardada = await this.repo.save(boleta);
+    await this.auditar(
+      'marcar_email_enviado',
+      'boleta',
+      id,
+      actor,
+      `Boleta ${boleta.periodo}`,
+    );
     return this.conUrls(guardada);
   }
 
-  async revertirFirma(id: number) {
+  async revertirFirma(
+    id: number,
+    actor?: { usuario?: string | null; ip?: string | null },
+  ) {
     const boleta = await this.repo.findOne({
       where: { id },
       relations: { trabajador: true },
@@ -307,18 +358,25 @@ export class BoletasService {
     boleta.tokenFirma = this.generarToken();
     boleta.firmaExpira = this.fechaExpiracion();
     boleta.tokenVer = this.generarToken();
+    boleta.modificadoPor = actor?.usuario ?? null;
+    boleta.modificadoIp = actor?.ip ?? null;
+    boleta.modificadoEn = new Date();
 
     const guardada = await this.repo.save(boleta);
-    await this.auditoria.registrar({
-      accion: 'revertir_firma',
-      entidad: 'boleta',
-      entidadId: id,
-      detalle: `Boleta ${boleta.periodo} revertida a PENDIENTE (${boleta.trabajador.nombreCompleto})`,
-    });
+    await this.auditar(
+      'revertir_firma',
+      'boleta',
+      id,
+      actor,
+      `Boleta ${boleta.periodo} revertida a PENDIENTE (${boleta.trabajador.nombreCompleto})`,
+    );
     return { ...this.conUrls(guardada), revertida: true };
   }
 
-  async enviarCorreo(id: number) {
+  async enviarCorreo(
+    id: number,
+    actor?: { usuario?: string | null; ip?: string | null },
+  ) {
     const boleta = await this.repo.findOne({
       where: { id },
       relations: { trabajador: true },
@@ -361,17 +419,24 @@ export class BoletasService {
 
     boleta.emailEnviado = true;
     boleta.fechaEmail = new Date();
+    boleta.modificadoPor = actor?.usuario ?? null;
+    boleta.modificadoIp = actor?.ip ?? null;
+    boleta.modificadoEn = new Date();
     const guardada = await this.repo.save(boleta);
-    await this.auditoria.registrar({
-      accion: 'enviar_correo',
-      entidad: 'boleta',
-      entidadId: id,
-      detalle: `Correo a ${email}`,
-    });
+    await this.auditar(
+      'enviar_correo',
+      'boleta',
+      id,
+      actor,
+      `Correo a ${email}`,
+    );
     return { ...this.conUrls(guardada), enviado: true, destinatario: email };
   }
 
-  async enviarMasivo(ids: number[]) {
+  async enviarMasivo(
+    ids: number[],
+    actor?: { usuario?: string | null; ip?: string | null },
+  ) {
     let enviados = 0;
     let sinEmail = 0;
     let yaEnviados = 0;
@@ -421,17 +486,19 @@ export class BoletasService {
       }
     }
 
-    await this.auditoria.registrar({
-      accion: 'envio_masivo',
-      entidad: 'boleta',
-      detalle: JSON.stringify({
+    await this.auditar(
+      'envio_masivo',
+      'boleta',
+      null,
+      actor,
+      JSON.stringify({
         total: ids.length,
         enviados,
         sinEmail,
         yaEnviados,
         errores,
       }),
-    });
+    );
 
     return {
       total: ids.length,
@@ -500,13 +567,23 @@ export class BoletasService {
     };
   }
 
-  async remove(id: number) {
+  async remove(
+    id: number,
+    actor?: { usuario?: string | null; ip?: string | null },
+  ) {
     const boleta = await this.repo.findOne({ where: { id } });
     if (!boleta) throw new NotFoundException('Boleta no encontrada');
     if (boleta.rutaPdf) {
       await fs.unlink(boleta.rutaPdf).catch(() => undefined);
     }
     await this.repo.delete(id);
+    await this.auditar(
+      'eliminar_boleta',
+      'boleta',
+      id,
+      actor,
+      `Boleta ${boleta.periodo}`,
+    );
   }
 
   async obtenerPdf(id: number): Promise<{ buffer: Uint8Array; nombre: string }> {

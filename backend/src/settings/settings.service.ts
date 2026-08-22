@@ -28,7 +28,10 @@ export class SettingsService {
     }
   }
 
-  async guardar(dataUrl: string) {
+  async guardar(
+    dataUrl: string,
+    actor?: { usuario?: string | null; ip?: string | null },
+  ) {
     const m = /^data:image\/png;base64,(.+)$/.exec(dataUrl);
     if (!m) {
       throw new NotFoundException(
@@ -41,20 +44,26 @@ export class SettingsService {
     }
     await fs.writeFile(this.ruta(), buffer);
     await this.auditoria.registrar({
+      usuario: actor?.usuario ?? null,
+      ip: actor?.ip ?? null,
       accion: 'actualizar_representante',
+      entidad: 'configuracion',
       detalle: 'Se actualizó la firma del representante legal',
     });
     return { ok: true, guardado: true };
   }
 
-  async eliminar() {
+  async eliminar(actor?: { usuario?: string | null; ip?: string | null }) {
     try {
       await fs.unlink(this.ruta());
     } catch {
       /* noop */
     }
     await this.auditoria.registrar({
+      usuario: actor?.usuario ?? null,
+      ip: actor?.ip ?? null,
       accion: 'eliminar_representante',
+      entidad: 'configuracion',
       detalle: 'Se eliminó la firma del representante legal',
     });
     return { ok: true, eliminado: true };

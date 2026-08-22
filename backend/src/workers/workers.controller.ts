@@ -8,12 +8,19 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { WorkersService } from './workers.service';
 import { CreateWorkerDto, UpdateWorkerDto } from './dto/worker.dto';
+
+function actorDe(req: Request) {
+  const user = req.user as { username?: string } | undefined;
+  return { usuario: user?.username ?? null, ip: req.ip ?? null };
+}
 
 @ApiTags('trabajadores')
 @ApiBearerAuth()
@@ -23,8 +30,8 @@ export class WorkersController {
   constructor(private readonly service: WorkersService) {}
 
   @Post('sincronizar')
-  sincronizar() {
-    return this.service.sincronizarDesdeGGHH();
+  sincronizar(@Req() req: Request) {
+    return this.service.sincronizarDesdeGGHH(actorDe(req));
   }
 
   @Get()
@@ -41,17 +48,21 @@ export class WorkersController {
   }
 
   @Post()
-  create(@Body() dto: CreateWorkerDto) {
-    return this.service.create(dto);
+  create(@Req() req: Request, @Body() dto: CreateWorkerDto) {
+    return this.service.create(dto, actorDe(req));
   }
 
   @Patch(':id')
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateWorkerDto) {
-    return this.service.update(id, dto);
+  update(
+    @Req() req: Request,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateWorkerDto,
+  ) {
+    return this.service.update(id, dto, actorDe(req));
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.service.remove(id);
+  remove(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
+    return this.service.remove(id, actorDe(req));
   }
 }

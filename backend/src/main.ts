@@ -7,6 +7,8 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix('api');
   app.enableCors({ origin: true, credentials: true });
+  // Para capturar la IP real del cliente detrás de un proxy/balanceador
+  app.getHttpAdapter().getInstance().set('trust proxy', true);
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 
   const config = new DocumentBuilder()

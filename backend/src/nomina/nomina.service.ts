@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { BoletasService } from '../boletas/boletas.service';
 import { WorkersService } from '../workers/workers.service';
 
@@ -111,6 +112,7 @@ export class NominaService {
     private readonly workers: WorkersService,
     private readonly boletas: BoletasService,
     private readonly config: ConfigService,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   private num(v: unknown): number {
@@ -125,7 +127,11 @@ export class NominaService {
    * Ejecuta el SP local que materializa el periodo en NominaDetalle.
    * Es el UNICO punto que consulta el ERP (vía linked server, una vez por periodo).
    */
-  async sincronizar(anomes: string, correl: string) {
+  async sincronizar(
+    anomes: string,
+    correl: string,
+    actor?: { usuario?: string | null; ip?: string | null },
+  ) {
     const emp = this.config.get<string>('NOMINA_EMP_CODIGO', '003');
     const rem = Number(this.config.get<string>('NOMINA_ID_REMUNE', '1'));
     await this.dataSource.query(
@@ -141,6 +147,13 @@ export class NominaService {
     this.logger.log(
       `Sincronizado ${anomes}/${correl}: ${f.filas} filas, ${f.trabajadores} trabajadores`,
     );
+    await this.auditoria.registrar({
+      usuario: actor?.usuario ?? null,
+      ip: actor?.ip ?? null,
+      accion: 'sincronizar_nomina',
+      entidad: 'nomina',
+      detalle: `Periodo ${anomes}/${correl}`,
+    });
     return {
       periodo: `${anomes}/${correl}`,
       filas: Number(f.filas),
@@ -363,7 +376,11 @@ export class NominaService {
     };
   }
 
-  async importar(anomes: string, correl: string) {
+  async importar(
+    anomes: string,
+    correl: string,
+    actor?: { usuario?: string | null; ip?: string | null },
+  ) {
     const rows = await this.leerDetalleLocal(anomes, correl);
     const grupos = this.agrupar(rows);
 
@@ -397,6 +414,7 @@ export class NominaService {
         worker.id,
         anomes,
         this.buildDetalle(filas),
+        actor,
       );
       if (boleta) {
         boletas.push(boleta);
@@ -410,6 +428,14 @@ export class NominaService {
       `Importación ${anomes}/${correl}: ${grupos.size} trabajadores, ${boletasGeneradas} boletas nuevas, ${boletasOmitidas} omitidas, ${trabajadoresCreados} trabajadores creados`,
     );
 
+    await this.auditoria.registrar({
+      usuario: actor?.usuario ?? null,
+      ip: actor?.ip ?? null,
+      accion: 'importar_nomina',
+      entidad: 'nomina',
+      detalle: `Periodo ${anomes}/${correl}: ${boletasGeneradas} boletas nuevas`,
+    });
+
     return {
       periodo: `${anomes}/${correl}`,
       trabajadores: grupos.size,
@@ -421,9 +447,20 @@ export class NominaService {
   }
 
   /** Genera las boletas de un periodo en un solo paso: sincroniza (lectura ERP) e importa. */
-  async generar(anomes: string, correl: string) {
-    const sincronizado = await this.sincronizar(anomes, correl);
-    const importado = await this.importar(anomes, correl);
+  async generar(
+    anomes: string,
+    correl: string,
+    actor?: { usuario?: string | null; ip?: string | null },
+  ) {
+    const sincronizado = await this.sincronizar(anomes, correl, actor);
+    const importado = await this.importar(anomes, correl, actor);
+    await this.auditoria.registrar({
+      usuario: actor?.usuario ?? null,
+      ip: actor?.ip ?? null,
+      accion: 'generar_boletas',
+      entidad: 'nomina',
+      detalle: `Periodo ${anomes}/${correl}: ${importado.boletasGeneradas} boletas generadas`,
+    });
     return { ...importado, sincronizado };
   }
 }

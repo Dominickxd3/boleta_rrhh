@@ -71,6 +71,21 @@ export class Boleta {
   @Column({ type: 'datetime2', nullable: true, name: 'firma_expira' })
   firmaExpira: Date | null;
 
+  @Column({ type: 'nvarchar', length: 100, nullable: true, name: 'creado_por' })
+  creadoPor: string | null;
+
+  @Column({ type: 'nvarchar', length: 50, nullable: true, name: 'creado_ip' })
+  creadoIp: string | null;
+
+  @Column({ type: 'nvarchar', length: 100, nullable: true, name: 'modificado_por' })
+  modificadoPor: string | null;
+
+  @Column({ type: 'nvarchar', length: 50, nullable: true, name: 'modificado_ip' })
+  modificadoIp: string | null;
+
+  @Column({ type: 'datetime2', nullable: true, name: 'modificado_en' })
+  modificadoEn: Date | null;
+
   @CreateDateColumn({ type: 'datetime2', name: 'creado_en' })
   creadoEn: Date;
 }

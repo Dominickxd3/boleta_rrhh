@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GghhService } from '../gghh/gghh.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { Worker } from './worker.entity';
 import { CreateWorkerDto, UpdateWorkerDto } from './dto/worker.dto';
 
@@ -10,7 +11,24 @@ export class WorkersService {
   constructor(
     @InjectRepository(Worker) private readonly repo: Repository<Worker>,
     private readonly gghh: GghhService,
+    private readonly auditoria: AuditoriaService,
   ) {}
+
+  private async auditar(
+    accion: string,
+    detalle: string,
+    entidadId?: number,
+    actor?: { usuario?: string | null; ip?: string | null },
+  ) {
+    await this.auditoria.registrar({
+      usuario: actor?.usuario ?? null,
+      ip: actor?.ip ?? null,
+      accion,
+      entidad: 'trabajador',
+      entidadId: entidadId ?? null,
+      detalle,
+    });
+  }
 
   findAll(search?: string, soloActivos?: boolean): Promise<Worker[]> {
     const qb = this.repo.createQueryBuilder('w');
@@ -36,19 +54,54 @@ export class WorkersService {
     return this.repo.findOne({ where: { dni } });
   }
 
-  create(dto: CreateWorkerDto): Promise<Worker> {
-    const worker = this.repo.create(dto);
+  create(
+    dto: CreateWorkerDto,
+    actor?: { usuario?: string | null; ip?: string | null },
+  ): Promise<Worker> {
+    const worker = this.repo.create({
+      ...dto,
+      creadoPor: actor?.usuario ?? null,
+      creadoIp: actor?.ip ?? null,
+    });
+    this.auditar(
+      'crear_trabajador',
+      `DNI ${dto.dni ?? ''} ${dto.nombres ?? ''} ${dto.apellidoPaterno ?? ''} ${dto.apellidoMaterno ?? ''}`,
+      undefined,
+      actor,
+    );
     return this.repo.save(worker);
   }
 
-  async update(id: number, dto: UpdateWorkerDto): Promise<Worker> {
+  async update(
+    id: number,
+    dto: UpdateWorkerDto,
+    actor?: { usuario?: string | null; ip?: string | null },
+  ): Promise<Worker> {
     const worker = await this.findOne(id);
     Object.assign(worker, dto);
+    worker.modificadoPor = actor?.usuario ?? null;
+    worker.modificadoIp = actor?.ip ?? null;
+    worker.modificadoEn = new Date();
+    await this.auditar(
+      'actualizar_trabajador',
+      `DNI ${worker.dni} ${worker.nombreCompleto}`,
+      id,
+      actor,
+    );
     return this.repo.save(worker);
   }
 
-  async remove(id: number): Promise<void> {
-    await this.findOne(id);
+  async remove(
+    id: number,
+    actor?: { usuario?: string | null; ip?: string | null },
+  ): Promise<void> {
+    const worker = await this.findOne(id);
+    await this.auditar(
+      'eliminar_trabajador',
+      `DNI ${worker.dni} ${worker.nombreCompleto}`,
+      id,
+      actor,
+    );
     await this.repo.delete(id);
   }
 
@@ -75,7 +128,10 @@ export class WorkersService {
     };
   }
 
-  async sincronizarDesdeGGHH() {
+  async sincronizarDesdeGGHH(actor?: {
+    usuario?: string | null;
+    ip?: string | null;
+  }) {
     const { resumen, trabajadores } = await this.gghh.sincronizarCache();
 
     let nuevos = 0;
@@ -99,7 +155,14 @@ export class WorkersService {
 
       const existente = await this.findByDni(dni);
       if (!existente) {
-        await this.repo.save(this.repo.create({ dni, ...datos }));
+        await this.repo.save(
+          this.repo.create({
+            dni,
+            ...datos,
+            creadoPor: actor?.usuario ?? null,
+            creadoIp: actor?.ip ?? null,
+          }),
+        );
         nuevos++;
         continue;
       }
@@ -113,6 +176,9 @@ export class WorkersService {
         !existente.activo;
       if (cambia) {
         Object.assign(existente, datos);
+        existente.modificadoPor = actor?.usuario ?? null;
+        existente.modificadoIp = actor?.ip ?? null;
+        existente.modificadoEn = new Date();
         await this.repo.save(existente);
         actualizados++;
       }
@@ -130,6 +196,18 @@ export class WorkersService {
     }
 
     const activos = todos.length - (todos.filter((w) => !w.activo).length);
+
+    await this.auditar(
+      'sincronizar_trabajadores',
+      JSON.stringify({
+        erp: trabajadores.length,
+        nuevos,
+        actualizados,
+        inactivos,
+      }),
+      undefined,
+      actor,
+    );
 
     return {
       fuente: 'DB_GP_Trabajos_TEST / sp_SyncTrabajadoresCache',
