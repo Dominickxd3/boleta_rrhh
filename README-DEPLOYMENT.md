@@ -116,7 +116,7 @@ Esto genera `backend\dist\` con el código de producción.
 ## 8. Puertos
 
 - Backend (API): `3001` (configurable en `.env`).
-- Frontend (Next.js): `3000` (configurable en `ecosystem.config.js`).
+- Frontend (Next.js): `3100` (configurable en `ecosystem.config.js` con la variable `PORT_WEB`; el 3000 suele estar ocupado).
 - Estos puertos quedan internos (solo el proxy IISI/el servidor los usa); **no** se abren al público si usas IIS como front.
 
 ## 9. Arquitectura recomendada
@@ -126,7 +126,7 @@ Internet
    ↓ (HTTPS 443)
 IIS (URL Rewrite) → proxy reverso
    ↓
-Node.js / PM2 (frontend, puerto 3000)
+Node.js / PM2 (frontend, puerto 3100)
    ↓            (solo llamadas /api)
 Node.js / PM2 (backend, puerto 3001)
    ↓
@@ -134,8 +134,8 @@ SQL Server
 ```
 
 - **PM2** mantiene vivos ambos procesos y los reinicia automáticamente.
-- **IIS** con **URL Rewrite** sirve HTTPS y redirige: `/api/*` → `http://localhost:3001/api/*` y el resto → `http://localhost:3000/*`.
-- Alternativa más simple: solo PM2 + Firewall abriendo 3000/3001, y el HTTPS lo maneja IIS u otro proxy.
+- **IIS** con **URL Rewrite** sirve HTTPS y redirige: `/api/*` → `http://localhost:3001/api/*` y el resto → `http://localhost:3100/*`.
+- Alternativa más simple: solo PM2 + Firewall abriendo 3100/3001, y el HTTPS lo maneja IIS u otro proxy.
 
 ## 10. Configuración de PM2
 
@@ -156,9 +156,11 @@ pm2 save
 
 ## 11. Configuración de HTTPS con IIS (opcional pero recomendado)
 
-1. Instalar IIS + el módulo **URL Rewrite**.
-2. Crear un sitio que apunte a `C:\apps\boleta_rrhh\frontend\public` (o simplemente configurar el proxy reverso).
-3. En `web.config` del sitio, agregar las reglas de reescritura:
+> **Importante:** el proxy reverso de IIS necesita instalar **URL Rewrite** y **Application Request Routing (ARR)** desde el Web Platform Installer, y en ARR activar *Enable proxy*.
+
+1. Instalar IIS + los módulos **URL Rewrite** y **ARR**.
+2. Crear un sitio IIS (puede apuntar a cualquier carpeta, ej. `C:\apps\boleta_rrhh\web`) y pegar el archivo `web.config` incluido en el repo en la raíz del sitio (contiene HTTPS + API → 3001 + frontend → 3100).
+3. El `web.config` (ya incluido en el repositorio) equivale a:
 
    ```xml
    <?xml version="1.0" encoding="UTF-8"?>
@@ -166,37 +168,31 @@ pm2 save
      <system.webServer>
        <rewrite>
          <rules>
-           <rule name="API" stopProcessing="true">
+           <rule name="Force HTTPS" stopProcessing="true">
+             <match url="(.*)" />
+             <conditions><add input="{HTTPS}" pattern="off" ignoreCase="true" /></conditions>
+             <action type="Redirect" url="https://{HTTP_HOST}/{R:1}" redirectType="Permanent" />
+           </rule>
+           <rule name="API Reverse Proxy" stopProcessing="true">
              <match url="^api/(.*)" />
              <action type="Rewrite" url="http://localhost:3001/api/{R:1}" />
            </rule>
-           <rule name="Frontend">
+           <rule name="Frontend Reverse Proxy" stopProcessing="true">
              <match url="(.*)" />
-             <action type="Rewrite" url="http://localhost:3000/{R:1}" />
+             <action type="Rewrite" url="http://localhost:3100/{R:1}" />
            </rule>
          </rules>
        </rewrite>
      </system.webServer>
    </configuration>
    ```
-4. Asignar el certificado SSL al sitio (HTTPS 443) y redirigir HTTP a HTTPS.
-5. En el `web.config` también es útil forzar HTTPS:
-   ```xml
-   <rewrite>
-     <rules>
-       <rule name="HTTPS" stopProcessing="true">
-         <match url="(.*)" />
-         <conditions><add input="{HTTPS}" pattern="off" ignoreCase="true" /></conditions>
-         <action type="Redirect" url="https://{HTTP_HOST}/{R:1}" redirectType="Permanent" />
-       </rule>
-     </rules>
-   </rewrite>
-   ```
+
+4. Asignar el certificado SSL al sitio (HTTPS 443).
 
 ## 12. Configuración del Firewall
 
-- **Con IIS + HTTPS**: solo abrir el puerto **443** (y 80 para redirección). No exponer 3000/3001.
-- **Sin IIS**: abrir 3000 y 3001 (o los que uses) para el público.
+- **Con IIS + HTTPS**: solo abrir el puerto **443** (y 80 para redirección). No exponer 3001/3100.
+- **Sin IIS**: abrir 3001 y 3100 (o los que uses) para el público.
 - Permitir la conexión del servidor hacia el SQL Server y hacia la carpeta de red de boletas (si aplica).
 
 ## 13. Inicio del sistema
@@ -208,7 +204,7 @@ pm2 start ecosystem.config.js --env production
 ## 14. Verificación de funcionamiento
 
 - API: `http://localhost:3001/api` responde (o `https://boletas.miempresa.com/api` si usas IIS).
-- Frontend: `http://localhost:3000` carga el login (o la URL pública).
+- Frontend: `http://localhost:3100` carga el login (o la URL pública).
 - Swagger (documentación API): `http://localhost:3001/api/docs` (deshabilitar en producción si se desea).
 - Probar el flujo completo: login → generación de boletas → envío de correo → firma → ver PDF.
 
