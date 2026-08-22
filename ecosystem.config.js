@@ -27,7 +27,7 @@ module.exports = {
       name: 'boletasgp-web',
       cwd: './frontend',
       script: 'node_modules/next/dist/bin/next',
-      args: 'start -p 3000',
+      args: 'start -p ' + (process.env.PORT_WEB || '3100'),
       interpreter: 'node',
       instances: 1,
       exec_mode: 'fork',
