@@ -84,7 +84,13 @@ $apiXml = @"
 Set-Content -Path "$raiz\boletasgp-api.xml" -Value $apiXml -Encoding UTF8
 
 # 5) Config XML del FRONTEND (Web)
-$nextXml = Xml-Escape "$raiz\frontend\node_modules\next\dist\bin\next"
+# npm hoistea 'next' a la raiz del proyecto (workspaces); usar esa ruta si existe.
+$nextBin = "$raiz\node_modules\next\dist\bin\next"
+if (-not (Test-Path $nextBin)) {
+  $nextBin = "$raiz\frontend\node_modules\next\dist\bin\next"
+}
+Write-Host "Ruta de next usada por el servicio: $nextBin" -ForegroundColor Green
+$nextXml = Xml-Escape $nextBin
 $webXml = @"
 <service>
   <id>BoletasGP-Web</id>
