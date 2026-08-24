@@ -458,13 +458,24 @@ export class BoletasService {
     ids: number[],
     actor?: ActorAuditoria,
   ) {
+    const delayMs = Math.max(
+      0,
+      Number(this.config.get<string>('SMTP_DELAY_MS', '1500')),
+    );
+    const inicio = Date.now();
     let enviados = 0;
     let sinEmail = 0;
     let yaEnviados = 0;
     let errores = 0;
+    let topeAlcanzado = false;
     const sinEmailDetalle: { nombre: string; area: string }[] = [];
+    const erroresDetalle: { nombre: string; periodo: string; motivo: string }[] = [];
 
     for (const id of ids) {
+      if (this.mail.restantesHoy() <= 0) {
+        topeAlcanzado = true;
+        break;
+      }
       const boleta = await this.repo.findOne({
         where: { id },
         relations: { trabajador: true },
@@ -502,10 +513,19 @@ export class BoletasService {
         boleta.fechaEmail = new Date();
         await this.repo.save(boleta);
         enviados++;
-      } catch {
+      } catch (e) {
         errores++;
+        erroresDetalle.push({
+          nombre: boleta.trabajador.nombreCompleto,
+          periodo: boleta.periodo,
+          motivo: (e as Error).message,
+        });
       }
+      if (delayMs > 0) await this.dormir(delayMs);
     }
+
+    const duracionSeg = Math.round((Date.now() - inicio) / 1000);
+    const estadoCorreo = this.mail.estadoCorreo();
 
     await this.auditar(
       'envio_masivo',
@@ -518,6 +538,9 @@ export class BoletasService {
         sinEmail,
         yaEnviados,
         errores,
+        topeAlcanzado,
+        usadosHoy: estadoCorreo.usadosHoy,
+        restantesHoy: estadoCorreo.restantesHoy,
       }),
     );
 
@@ -528,7 +551,22 @@ export class BoletasService {
       yaEnviados,
       errores,
       sinEmailDetalle,
+      erroresDetalle,
+      topeAlcanzado,
+      duracionSeg,
+      usadosHoy: estadoCorreo.usadosHoy,
+      restantesHoy: estadoCorreo.restantesHoy,
+      limiteDiario: estadoCorreo.limiteDiario,
+      smtpEstado: estadoCorreo.estado,
     };
+  }
+
+  async estadoCorreo() {
+    return this.mail.estadoCorreo();
+  }
+
+  private dormir(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   async exportarCsv(query: { anio?: string; mes?: string; soloPendientes?: string }) {

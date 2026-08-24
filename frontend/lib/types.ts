@@ -173,4 +173,19 @@ export interface EnviarMasivoResultado {
   yaEnviados: number;
   errores: number;
   sinEmailDetalle?: { nombre: string; area: string }[];
+  erroresDetalle?: { nombre: string; periodo: string; motivo: string }[];
+  topeAlcanzado?: boolean;
+  duracionSeg?: number;
+  usadosHoy?: number;
+  restantesHoy?: number;
+  limiteDiario?: number;
+  smtpEstado?: "ok" | "bloqueado" | "indisponible" | "no_configurado";
+}
+
+export interface CorreoEstado {
+  configurado: boolean;
+  limiteDiario: number;
+  usadosHoy: number;
+  restantesHoy: number;
+  estado: "ok" | "bloqueado" | "indisponible" | "no_configurado";
 }
