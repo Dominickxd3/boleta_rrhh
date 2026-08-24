@@ -5,7 +5,6 @@
 #  Crea: BoletasGP-API (backend, puerto 3001)
 #        BoletasGP-Web (frontend, puerto 3100)
 #  Conserva intacto el PM2 de papeletas-api.
-#  WinSW es el wrapper mantenido activamente (reemplaza a NSSM).
 # ============================================================
 $ErrorActionPreference = "Stop"
 $raiz = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -26,15 +25,25 @@ if (-not (Test-Path $winsw)) {
 }
 Write-Host "WinSW listo: $winsw" -ForegroundColor Green
 
+# WinSW usa el archivo de config con el MISMO nombre que el exe.
+$apiExe = "$raiz\boletasgp-api.exe"
+$webExe = "$raiz\boletasgp-web.exe"
+Copy-Item $winsw $apiExe -Force
+Copy-Item $winsw $webExe -Force
+
 # 2) Detener versiones PM2 de BoletasGP (conserva papeletas-api)
 Write-Host "`nDeteniendo versiones PM2 de BoletasGP (papeletas-api intacta)..." -ForegroundColor Yellow
 pm2 delete boletasgp-api 2>$null
 pm2 delete boletasgp-web 2>$null
 
 # 3) Credenciales del servicio (acceso a carpeta de red)
-$dominio = Read-Host "Dominio o equipo (ej. GRUPOPECUARIO)"
-$usuario = Read-Host "Usuario (ej. administrador)"
-$clave   = Read-Host "Contrasena del usuario" -AsSecureString
+Write-Host "`nDatos de la cuenta con la que correra el servicio:" -ForegroundColor Yellow
+Write-Host "  - Dominio: el dominio o nombre del equipo (ej. GRUPOPECUARIO)"
+Write-Host "  - Usuario: administrador"
+Write-Host "  - Contrasena: la del usuario administrador"
+$dominio = Read-Host "Dominio o equipo"
+$usuario = Read-Host "Usuario"
+$clave   = Read-Host "Contrasena" -AsSecureString
 $pass    = [System.Net.NetworkCredential]::new("", $clave).Password
 $passXml = Xml-Escape $pass
 
@@ -68,7 +77,7 @@ $apiXml = @"
   <onfailure action="restart" delay="10 sec"/>
 </service>
 "@
-Set-Content -Path "$raiz\winsw-api.xml" -Value $apiXml -Encoding UTF8
+Set-Content -Path "$raiz\boletasgp-api.xml" -Value $apiXml -Encoding UTF8
 
 # 5) Config XML del FRONTEND (Web)
 $nextXml = Xml-Escape "$raiz\frontend\node_modules\next\dist\bin\next"
@@ -99,17 +108,17 @@ $webXml = @"
   <onfailure action="restart" delay="10 sec"/>
 </service>
 "@
-Set-Content -Path "$raiz\winsw-web.xml" -Value $webXml -Encoding UTF8
+Set-Content -Path "$raiz\boletasgp-web.xml" -Value $webXml -Encoding UTF8
 
 # 6) Instalar e iniciar
 Write-Host "`nInstalando servicios..." -ForegroundColor Yellow
-& $winsw -c "$raiz\winsw-api.xml" install
-& $winsw -c "$raiz\winsw-api.xml" start
-& $winsw -c "$raiz\winsw-web.xml" install
-& $winsw -c "$raiz\winsw-web.xml" start
+& $apiExe install
+& $apiExe start
+& $webExe install
+& $webExe start
 
 # 7) Verificar
-Start-Sleep -Seconds 5
+Start-Sleep -Seconds 6
 Write-Host "`nEstado de los servicios:" -ForegroundColor Green
 Get-Service BoletasGP-API, BoletasGP-Web | Select-Object Name, Status, StartType
 Write-Host "`nPuertos:" -ForegroundColor Green
@@ -117,5 +126,5 @@ netstat -ano | findstr ":3001"
 netstat -ano | findstr ":3100"
 
 Write-Host "`nPara desinstalar (si hace falta):" -ForegroundColor Yellow
-Write-Host "  .\winsw.exe -c winsw-api.xml uninstall"
-Write-Host "  .\winsw.exe -c winsw-web.xml uninstall"
+Write-Host "  $apiExe uninstall"
+Write-Host "  $webExe uninstall"

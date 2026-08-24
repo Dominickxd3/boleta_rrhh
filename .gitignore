@@ -14,3 +14,7 @@ Thumbs.db
 coverage/
 winsw.exe
 winsw-*.xml
+boletasgp-api.exe
+boletasgp-web.exe
+boletasgp-api.xml
+boletasgp-web.xml
