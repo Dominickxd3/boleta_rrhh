@@ -21,7 +21,10 @@ export type EstadoCorreo =
   | 'ok'
   | 'bloqueado'
   | 'indisponible'
-  | 'no_configurado';
+  | 'no_configurado'
+  | 'auth'
+  | 'cuota'
+  | 'rechazado';
 
 export interface CorreoEstadoInfo {
   configurado: boolean;
@@ -29,6 +32,8 @@ export interface CorreoEstadoInfo {
   usadosHoy: number;
   restantesHoy: number;
   estado: EstadoCorreo;
+  ultimoError: string | null;
+  ultimoErrorFecha: string | null;
 }
 
 @Injectable()
@@ -37,6 +42,8 @@ export class MailService {
   private usadosHoy = 0;
   private diaContador = '';
   private ultimoEstado: EstadoCorreo = 'no_configurado';
+  private ultimoError: string | null = null;
+  private ultimoErrorFecha: string | null = null;
 
   constructor(private readonly config: ConfigService) {
     const host = this.config.get<string>('SMTP_HOST');
@@ -104,6 +111,8 @@ export class MailService {
       usadosHoy: this.usadosHoyValor(),
       restantesHoy: this.restantesHoy(),
       estado: this.ultimoEstado,
+      ultimoError: this.ultimoError,
+      ultimoErrorFecha: this.ultimoErrorFecha,
     };
   }
 
@@ -128,6 +137,49 @@ export class MailService {
     );
   }
 
+  private textoError(err: unknown): string {
+    const e = err as { message?: unknown; code?: unknown; response?: unknown };
+    const msg = String(e?.message ?? '');
+    const code = (e as { responseCode?: unknown })?.responseCode;
+    return typeof code === 'number' ? `Código ${code}: ${msg}` : msg;
+  }
+
+  private clasificar(err: unknown): EstadoCorreo {
+    const e = err as { responseCode?: unknown; message?: unknown; code?: unknown };
+    const code = e?.responseCode;
+    const msg = String(e?.message ?? e?.code ?? '').toLowerCase();
+
+    // Error de autenticación: cuenta rechazada / bloqueada / clave de app inválida
+    if (
+      code === 535 ||
+      msg.includes('authentication') ||
+      msg.includes('invalid login') ||
+      msg.includes('credentials') ||
+      msg.includes('username and password') ||
+      msg.includes('auth')
+    ) {
+      return 'auth';
+    }
+    // Límite diario / cuota del proveedor (452 / 454 4.7.0 / too many messages)
+    if (
+      code === 452 ||
+      code === 454 ||
+      msg.includes('daily limit') ||
+      msg.includes('too many') ||
+      msg.includes('quota') ||
+      msg.includes('message rejected') ||
+      msg.includes('5.4.5') ||
+      msg.includes('5.2.1')
+    ) {
+      return 'cuota';
+    }
+    // Rechazo permanente (5xx): posible bloqueo por comportamiento sospechoso
+    if (typeof code === 'number' && code >= 500) return 'rechazado';
+    // Errores transitorios (4xx / red): posible throttling
+    if (this.esTransitorio(err)) return 'bloqueado';
+    return 'indisponible';
+  }
+
   private async conReintentos(fn: () => Promise<void>): Promise<void> {
     const intentos = 3;
     let err: unknown;
@@ -135,6 +187,8 @@ export class MailService {
       try {
         await fn();
         this.ultimoEstado = 'ok';
+        this.ultimoError = null;
+        this.ultimoErrorFecha = null;
         return;
       } catch (e) {
         err = e;
@@ -142,7 +196,9 @@ export class MailService {
         await this.dormir(1000 * 2 ** i);
       }
     }
-    this.ultimoEstado = this.esTransitorio(err) ? 'bloqueado' : 'indisponible';
+    this.ultimoEstado = this.clasificar(err);
+    this.ultimoError = this.textoError(err);
+    this.ultimoErrorFecha = new Date().toISOString();
     throw err;
   }
 

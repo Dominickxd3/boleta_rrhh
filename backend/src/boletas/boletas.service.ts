@@ -558,6 +558,8 @@ export class BoletasService {
       restantesHoy: estadoCorreo.restantesHoy,
       limiteDiario: estadoCorreo.limiteDiario,
       smtpEstado: estadoCorreo.estado,
+      ultimoError: estadoCorreo.ultimoError,
+      ultimoErrorFecha: estadoCorreo.ultimoErrorFecha,
     };
   }
 

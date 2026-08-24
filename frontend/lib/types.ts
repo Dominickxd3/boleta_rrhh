@@ -179,7 +179,16 @@ export interface EnviarMasivoResultado {
   usadosHoy?: number;
   restantesHoy?: number;
   limiteDiario?: number;
-  smtpEstado?: "ok" | "bloqueado" | "indisponible" | "no_configurado";
+  smtpEstado?:
+    | "ok"
+    | "bloqueado"
+    | "indisponible"
+    | "no_configurado"
+    | "auth"
+    | "cuota"
+    | "rechazado";
+  ultimoError?: string | null;
+  ultimoErrorFecha?: string | null;
 }
 
 export interface CorreoEstado {
@@ -187,5 +196,14 @@ export interface CorreoEstado {
   limiteDiario: number;
   usadosHoy: number;
   restantesHoy: number;
-  estado: "ok" | "bloqueado" | "indisponible" | "no_configurado";
+  estado:
+    | "ok"
+    | "bloqueado"
+    | "indisponible"
+    | "no_configurado"
+    | "auth"
+    | "cuota"
+    | "rechazado";
+  ultimoError: string | null;
+  ultimoErrorFecha: string | null;
 }

@@ -37,13 +37,36 @@ const estadoSmtpInfo = (estado?: EnviarMasivoResultado["smtpEstado"]) => {
         fondo: "#ecfdf5",
         borde: "#a7f3d0",
       };
-    case "bloqueado":
+    case "auth":
       return {
         texto:
-          "El proveedor de correo rechazó algunos envíos de forma temporal (se reintentaron)",
+          "La cuenta de correo rechazó el acceso. Revisa la cuenta Gmail (posible aviso de seguridad) o el permiso de aplicaciones.",
         color: "#b91c1c",
         fondo: "#fef2f2",
         borde: "#fecaca",
+      };
+    case "cuota":
+      return {
+        texto: "Se alcanzó el límite de envíos del día permitido por el proveedor.",
+        color: "#b45309",
+        fondo: "#fffbeb",
+        borde: "#fde68a",
+      };
+    case "rechazado":
+      return {
+        texto:
+          "El proveedor de correo rechazó el mensaje de forma permanente. Revisa tu cuenta Gmail (posible bloqueo por actividad sospechosa).",
+        color: "#b91c1c",
+        fondo: "#fef2f2",
+        borde: "#fecaca",
+      };
+    case "bloqueado":
+      return {
+        texto:
+          "El proveedor de correo rechazó algunos envíos de forma temporal (se reintentaron). Espera un momento y vuelve a intentar.",
+        color: "#b45309",
+        fondo: "#fffbeb",
+        borde: "#fde68a",
       };
     case "indisponible":
       return {
@@ -125,7 +148,11 @@ const resumenEnvioHtml = (res: EnviarMasivoResultado): string => {
   }
 
   // Estado SMTP
-  html += `<div style="margin:8px 0;border:1px solid ${smtp.borde};border-radius:8px;padding:8px 10px;background:${smtp.fondo};color:${smtp.color}">📧 <b>Estado del correo:</b> ${smtp.texto}</div>`;
+  html += `<div style="margin:8px 0;border:1px solid ${smtp.borde};border-radius:8px;padding:8px 10px;background:${smtp.fondo};color:${smtp.color}">📧 <b>Estado del correo:</b> ${smtp.texto}`;
+  if (res.ultimoError) {
+    html += `<br/><span style="font-size:11px;opacity:.85">Detalle: ${res.ultimoError}</span>`;
+  }
+  html += `</div>`;
 
   // Envíos del día
   if (res.limiteDiario !== undefined && res.usadosHoy !== undefined) {
@@ -658,7 +685,9 @@ export default function BoletasPage() {
             title={
               correoEstado.restantesHoy <= 0
                 ? "Se alcanzó el límite de envíos de hoy"
-                : `Enviados hoy: ${correoEstado.usadosHoy} de ${correoEstado.limiteDiario}`
+                : correoEstado.ultimoError
+                  ? `Detalle: ${correoEstado.ultimoError}`
+                  : `Enviados hoy: ${correoEstado.usadosHoy} de ${correoEstado.limiteDiario}`
             }
           >
             <span
