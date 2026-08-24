@@ -32,9 +32,13 @@ Copy-Item $winsw $apiExe -Force
 Copy-Item $winsw $webExe -Force
 
 # 2) Detener versiones PM2 de BoletasGP (conserva papeletas-api)
+#    Si ya no existen en PM2, se ignora el error y continua.
 Write-Host "`nDeteniendo versiones PM2 de BoletasGP (papeletas-api intacta)..." -ForegroundColor Yellow
-pm2 delete boletasgp-api 2>$null
-pm2 delete boletasgp-web 2>$null
+$ErrorActionPreference = "Continue"
+try { cmd /c "pm2 delete boletasgp-api 2>nul" } catch { }
+try { cmd /c "pm2 delete boletasgp-web 2>nul" } catch { }
+$ErrorActionPreference = "Stop"
+Write-Host "PM2 de BoletasGP liberado." -ForegroundColor Green
 
 # 3) Credenciales del servicio (acceso a carpeta de red)
 Write-Host "`nDatos de la cuenta con la que correra el servicio:" -ForegroundColor Yellow
