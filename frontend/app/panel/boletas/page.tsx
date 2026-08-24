@@ -39,21 +39,22 @@ const estadoSmtpInfo = (estado?: EnviarMasivoResultado["smtpEstado"]) => {
       };
     case "bloqueado":
       return {
-        texto: "Gmail respondió errores temporales (posible bloqueo por ritmo)",
+        texto:
+          "El proveedor de correo rechazó algunos envíos de forma temporal (se reintentaron)",
         color: "#b91c1c",
         fondo: "#fef2f2",
         borde: "#fecaca",
       };
     case "indisponible":
       return {
-        texto: "Servidor de correo no disponible en este momento",
+        texto: "El servidor de correo no está disponible en este momento",
         color: "#b45309",
         fondo: "#fffbeb",
         borde: "#fde68a",
       };
     default:
       return {
-        texto: "Correo no configurado (revisa SMTP_HOST/USER/PASS)",
+        texto: "El envío de correo no está configurado (avisa al administrador)",
         color: "#6b7280",
         fondo: "#f3f4f6",
         borde: "#e5e7eb",
@@ -99,7 +100,7 @@ const resumenEnvioHtml = (res: EnviarMasivoResultado): string => {
 
   // Tope alcanzado
   if (res.topeAlcanzado) {
-    html += `<p style="margin:0 0 8px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:8px 10px"><b>⚠️ Límite diario alcanzado.</b> El lote se detuvo para no superar el cupo del día.</p>`;
+    html += `<p style="margin:0 0 8px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:8px 10px"><b>⚠️ Límite de envíos de hoy alcanzado.</b> El lote se detuvo para no superar el máximo del día.</p>`;
   }
 
   // Errores detalle
@@ -126,12 +127,12 @@ const resumenEnvioHtml = (res: EnviarMasivoResultado): string => {
   // Estado SMTP
   html += `<div style="margin:8px 0;border:1px solid ${smtp.borde};border-radius:8px;padding:8px 10px;background:${smtp.fondo};color:${smtp.color}">📧 <b>Estado del correo:</b> ${smtp.texto}</div>`;
 
-  // Cupo diario
+  // Envíos del día
   if (res.limiteDiario !== undefined && res.usadosHoy !== undefined) {
     html += `<div style="margin:8px 0;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;background:#f9fafb">
       <div style="display:flex;justify-content:space-between;font-size:12px;color:#374151;margin-bottom:4px">
-        <span><b>Cupo diario usado:</b> ${res.usadosHoy} de ${res.limiteDiario}</span>
-        <span style="color:#059669"><b>${res.restantesHoy} restantes</b></span>
+        <span><b>Enviados hoy:</b> ${res.usadosHoy} de ${res.limiteDiario}</span>
+        <span style="color:#059669"><b>${res.restantesHoy} disponibles hoy</b></span>
       </div>
       <div style="background:#e5e7eb;border-radius:9999px;height:8px;overflow:hidden">
         <div style="background:${colorBarra};height:8px;width:${pct}%"></div>
@@ -656,8 +657,8 @@ export default function BoletasPage() {
             }`}
             title={
               correoEstado.restantesHoy <= 0
-                ? "Límite diario de correos alcanzado"
-                : `Usados hoy: ${correoEstado.usadosHoy} de ${correoEstado.limiteDiario}`
+                ? "Se alcanzó el límite de envíos de hoy"
+                : `Enviados hoy: ${correoEstado.usadosHoy} de ${correoEstado.limiteDiario}`
             }
           >
             <span
@@ -669,7 +670,7 @@ export default function BoletasPage() {
                     : "bg-amber-500"
               }`}
             />
-            Cupo SMTP: {correoEstado.restantesHoy}/{correoEstado.limiteDiario}
+            Envíos de hoy: {correoEstado.restantesHoy} disponibles
           </div>
         )}
       </div>
