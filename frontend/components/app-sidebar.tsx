@@ -41,6 +41,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const items = [
   { title: "Inicio", url: "/panel", icon: Home },
@@ -82,6 +83,7 @@ function Avatar({ usuario }: { usuario: { nombre: string; avatarUrl?: string } }
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const isMobile = useIsMobile();
   const [usuario, setUsuario] = useState<Usuario | null>(null);
 
   useEffect(() => {
@@ -203,9 +205,9 @@ export function AppSidebar() {
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="start"
-                side="right"
+                side={isMobile ? "top" : "right"}
                 sideOffset={4}
-                className="w-56"
+                className="w-56 max-w-[calc(100vw-2rem)]"
               >
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="flex flex-col gap-1">

@@ -17,6 +17,7 @@ import { apiFetch, API_URL, getToken } from "@/lib/api";
 import AreaSelect from "@/components/AreaSelect";
 import {
   Boleta,
+  CorreoEstado,
   EnviarMasivoResultado,
   GenerarResultado,
   Periodo,
@@ -26,6 +27,149 @@ import { nombreMes } from "@/lib/format";
 
 const moneda = (n: number) =>
   n.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const estadoSmtpInfo = (estado?: EnviarMasivoResultado["smtpEstado"]) => {
+  switch (estado) {
+    case "ok":
+      return {
+        texto: "Servidor de correo operativo",
+        color: "#16a34a",
+        fondo: "#ecfdf5",
+        borde: "#a7f3d0",
+      };
+    case "auth":
+      return {
+        texto:
+          "La cuenta de correo rechazó el acceso. Revisa la cuenta Gmail (posible aviso de seguridad) o el permiso de aplicaciones.",
+        color: "#b91c1c",
+        fondo: "#fef2f2",
+        borde: "#fecaca",
+      };
+    case "cuota":
+      return {
+        texto: "Se alcanzó el límite de envíos del día permitido por el proveedor.",
+        color: "#b45309",
+        fondo: "#fffbeb",
+        borde: "#fde68a",
+      };
+    case "rechazado":
+      return {
+        texto:
+          "El proveedor de correo rechazó el mensaje de forma permanente. Revisa tu cuenta Gmail (posible bloqueo por actividad sospechosa).",
+        color: "#b91c1c",
+        fondo: "#fef2f2",
+        borde: "#fecaca",
+      };
+    case "bloqueado":
+      return {
+        texto:
+          "El proveedor de correo rechazó algunos envíos de forma temporal (se reintentaron). Espera un momento y vuelve a intentar.",
+        color: "#b45309",
+        fondo: "#fffbeb",
+        borde: "#fde68a",
+      };
+    case "indisponible":
+      return {
+        texto: "El servidor de correo no está disponible en este momento",
+        color: "#b45309",
+        fondo: "#fffbeb",
+        borde: "#fde68a",
+      };
+    default:
+      return {
+        texto: "El envío de correo no está configurado (avisa al administrador)",
+        color: "#6b7280",
+        fondo: "#f3f4f6",
+        borde: "#e5e7eb",
+      };
+  }
+};
+
+const resumenEnvioHtml = (res: EnviarMasivoResultado): string => {
+  const pct = res.limiteDiario
+    ? Math.min(100, Math.round(((res.usadosHoy ?? 0) / res.limiteDiario) * 100))
+    : 0;
+  const colorBarra = pct >= 90 ? "#dc2626" : pct >= 70 ? "#d97706" : "#16a34a";
+  const smtp = estadoSmtpInfo(res.smtpEstado);
+
+  let html = `<div style="text-align:left;font-size:13px;line-height:1.55">`;
+
+  // Tarjetas de resultado
+  html += `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+    <div style="flex:1;min-width:88px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:8px 10px;text-align:center">
+      <div style="font-size:20px;font-weight:700;color:#059669">${res.enviados}</div>
+      <div style="color:#047857;font-size:11px">Enviados</div>
+    </div>
+    <div style="flex:1;min-width:88px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:8px 10px;text-align:center">
+      <div style="font-size:20px;font-weight:700;color:#dc2626">${res.errores}</div>
+      <div style="color:#b91c1c;font-size:11px">Con error</div>
+    </div>
+    <div style="flex:1;min-width:88px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:8px 10px;text-align:center">
+      <div style="font-size:20px;font-weight:700;color:#d97706">${res.sinEmail}</div>
+      <div style="color:#b45309;font-size:11px">Sin correo</div>
+    </div>
+    <div style="flex:1;min-width:88px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:8px 10px;text-align:center">
+      <div style="font-size:20px;font-weight:700;color:#2563eb">${res.yaEnviados}</div>
+      <div style="color:#1d4ed8;font-size:11px">Ya enviados</div>
+    </div>
+  </div>`;
+
+  // Duración
+  if (res.duracionSeg !== undefined) {
+    const m = Math.floor(res.duracionSeg / 60);
+    const s = res.duracionSeg % 60;
+    html += `<p style="margin:0 0 8px;color:#374151">⏱️ <b>Duración:</b> ${m > 0 ? `${m} min ` : ""}${s} s</p>`;
+  }
+
+  // Tope alcanzado
+  if (res.topeAlcanzado) {
+    html += `<p style="margin:0 0 8px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:8px 10px"><b>⚠️ Límite de envíos de hoy alcanzado.</b> El lote se detuvo para no superar el máximo del día.</p>`;
+  }
+
+  // Errores detalle
+  if (res.erroresDetalle && res.erroresDetalle.length > 0) {
+    const lista = res.erroresDetalle
+      .slice(0, 8)
+      .map((d) => `• ${d.nombre} <span style="color:#9ca3af">(${d.periodo})</span> — <span style="color:#dc2626">${d.motivo}</span>`)
+      .join("<br/>");
+    const resto =
+      res.erroresDetalle.length > 8
+        ? `<br/><span style="color:#6b7280">…y ${res.erroresDetalle.length - 8} más</span>`
+        : "";
+    html += `<div style="margin:8px 0;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;background:#fff7f7"><b style="color:#b91c1c">No enviados (${res.erroresDetalle.length}):</b><br/>${lista}${resto}</div>`;
+  }
+
+  // Sin correo detalle
+  if (res.sinEmailDetalle && res.sinEmailDetalle.length > 0) {
+    const lista = res.sinEmailDetalle
+      .map((d) => `• ${d.nombre} <span style="color:#9ca3af">(${d.area})</span>`)
+      .join("<br/>");
+    html += `<div style="margin:8px 0;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;background:#fffbeb"><b style="color:#b45309">Sin correo asignado (${res.sinEmailDetalle.length}):</b><br/>${lista}</div>`;
+  }
+
+  // Estado SMTP
+  html += `<div style="margin:8px 0;border:1px solid ${smtp.borde};border-radius:8px;padding:8px 10px;background:${smtp.fondo};color:${smtp.color}">📧 <b>Estado del correo:</b> ${smtp.texto}`;
+  if (res.ultimoError) {
+    html += `<br/><span style="font-size:11px;opacity:.85">Detalle: ${res.ultimoError}</span>`;
+  }
+  html += `</div>`;
+
+  // Envíos del día
+  if (res.limiteDiario !== undefined && res.usadosHoy !== undefined) {
+    html += `<div style="margin:8px 0;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;background:#f9fafb">
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#374151;margin-bottom:4px">
+        <span><b>Enviados hoy:</b> ${res.usadosHoy} de ${res.limiteDiario}</span>
+        <span style="color:#059669"><b>${res.restantesHoy} disponibles hoy</b></span>
+      </div>
+      <div style="background:#e5e7eb;border-radius:9999px;height:8px;overflow:hidden">
+        <div style="background:${colorBarra};height:8px;width:${pct}%"></div>
+      </div>
+    </div>`;
+  }
+
+  html += `</div>`;
+  return html;
+};
 
 export default function BoletasPage() {
   const ahora = new Date();
@@ -47,6 +191,17 @@ export default function BoletasPage() {
   const [generando, setGenerando] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [seleccionadas, setSeleccionadas] = useState<Set<number>>(new Set());
+  const [correoEstado, setCorreoEstado] = useState<CorreoEstado | null>(null);
+
+  const cargarCorreoEstado = useCallback(() => {
+    apiFetch<CorreoEstado>("/boletas/correo-estado")
+      .then(setCorreoEstado)
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    cargarCorreoEstado();
+  }, [cargarCorreoEstado]);
 
   const [periodos, setPeriodos] = useState<Periodo[]>([]);
 
@@ -126,6 +281,13 @@ export default function BoletasPage() {
       a.trabajador.nombreCompleto.localeCompare(b.trabajador.nombreCompleto),
     );
   }, [boletas, busqueda, areaFiltro, tab]);
+
+  const abrirDetalle = useCallback((b: Boleta) => {
+    setVista(b);
+    apiFetch<Boleta>(`/boletas/${b.id}`)
+      .then((completa) => setVista(completa))
+      .catch(() => {});
+  }, []);
 
   const areas = useMemo(
     () =>
@@ -323,22 +485,18 @@ export default function BoletasPage() {
         body: JSON.stringify({ ids }),
       });
       Swal.fire({
-        icon: "success",
-        title: "Correos enviados",
-        html: (() => {
-          let html = `<b>${res.enviados}</b> enviados · <b>${res.yaEnviados}</b> ya enviados · <b>${res.sinEmail}</b> sin correo registrado · <b>${res.errores}</b> con error`;
-          if (res.sinEmailDetalle && res.sinEmailDetalle.length > 0) {
-            const lista = res.sinEmailDetalle
-              .map((d) => `• ${d.nombre} <span style="color:#6b7280">(${d.area})</span>`)
-              .join("<br/>");
-            html += `<br/><br/><div style="text-align:left;font-size:13px"><b>Sin correo asignado (${res.sinEmailDetalle.length}):</b><br/>${lista}</div>`;
-          }
-          return html;
-        })(),
+        icon: res.errores > 0 && res.enviados === 0 ? "error" : "success",
+        title:
+          res.errores > 0 && res.enviados === 0
+            ? "Ninguno enviado"
+            : "Correos enviados",
+        html: resumenEnvioHtml(res),
+        width: 480,
         confirmButtonColor: "#2563eb",
       });
       setSeleccionadas(new Set());
       cargarPorArea();
+      cargarCorreoEstado();
     } catch (err) {
       Swal.fire({
         icon: "error",
@@ -522,6 +680,35 @@ export default function BoletasPage() {
             Enviar ({seleccionadas.size})
           </button>
         )}
+        {correoEstado && (
+          <div
+            className={`ml-2 inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium ${
+              correoEstado.restantesHoy <= 0
+                ? "border-red-300 bg-red-50 text-red-700"
+                : correoEstado.estado === "bloqueado" || correoEstado.estado === "indisponible"
+                  ? "border-amber-300 bg-amber-50 text-amber-700"
+                  : "border-gray-300 bg-white text-gray-600"
+            }`}
+            title={
+              correoEstado.restantesHoy <= 0
+                ? "Se alcanzó el límite de envíos de hoy"
+                : correoEstado.ultimoError
+                  ? `Detalle: ${correoEstado.ultimoError}`
+                  : `Enviados hoy: ${correoEstado.usadosHoy} de ${correoEstado.limiteDiario}`
+            }
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${
+                correoEstado.restantesHoy <= 0
+                  ? "bg-red-500"
+                  : correoEstado.estado === "ok"
+                    ? "bg-green-500"
+                    : "bg-amber-500"
+              }`}
+            />
+            Envíos de hoy: {correoEstado.restantesHoy} disponibles
+          </div>
+        )}
       </div>
 
       {/* ====== Tarjetas (móvil) ====== */}
@@ -589,7 +776,7 @@ export default function BoletasPage() {
               </div>
               <div className="flex flex-wrap justify-end gap-2">
                 <button
-                  onClick={() => setVista(b)}
+                  onClick={() => abrirDetalle(b)}
                   title="Ver detalle"
                   className={accionIcono}
                 >
@@ -735,7 +922,7 @@ export default function BoletasPage() {
                   <td className="px-4 py-2">
                     <div className="flex gap-2">
                       <button
-                        onClick={() => setVista(b)}
+                        onClick={() => abrirDetalle(b)}
                         title="Ver detalle"
                         className={accionIcono}
                       >

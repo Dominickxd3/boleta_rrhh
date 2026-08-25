@@ -1,0 +1,25 @@
+﻿<service>
+  <id>BoletasGP-Web</id>
+  <name>BoletasGP-Web</name>
+  <description>BoletasGP - Frontend web (puerto 3100)</description>
+  <executable>C:\Program Files\nodejs\node.exe</executable>
+  <arguments>
+    <argument>C:\inetpub\wwwroot\boleta_rrhh\frontend\node_modules\next\dist\bin\next</argument>
+    <argument>start</argument>
+    <argument>-p</argument>
+    <argument>3100</argument>
+  </arguments>
+  <workingdirectory>C:\inetpub\wwwroot\boleta_rrhh\frontend</workingdirectory>
+  <logpath>C:\inetpub\wwwroot\boleta_rrhh\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+  <serviceaccount>
+    <domain>administrador</domain>
+    <user>#Admi1982&amp;&amp;&amp;</user>
+    <password>#Admi1982&amp;&amp;&amp;</password>
+    <allowservicelogon>true</allowservicelogon>
+  </serviceaccount>
+  <onfailure action="restart" delay="10 sec"/>
+</service>

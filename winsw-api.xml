@@ -1,0 +1,22 @@
+﻿<service>
+  <id>BoletasGP-API</id>
+  <name>BoletasGP-API</name>
+  <description>BoletasGP - API backend (puerto 3001)</description>
+  <executable>C:\Program Files\nodejs\node.exe</executable>
+  <arguments>
+    <argument>C:\inetpub\wwwroot\boleta_rrhh\backend\dist\main.js</argument>
+  </arguments>
+  <workingdirectory>C:\inetpub\wwwroot\boleta_rrhh\backend</workingdirectory>
+  <logpath>C:\inetpub\wwwroot\boleta_rrhh\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+  <serviceaccount>
+    <domain>administrador</domain>
+    <user>#Admi1982&amp;&amp;&amp;</user>
+    <password>#Admi1982&amp;&amp;&amp;</password>
+    <allowservicelogon>true</allowservicelogon>
+  </serviceaccount>
+  <onfailure action="restart" delay="10 sec"/>
+</service>

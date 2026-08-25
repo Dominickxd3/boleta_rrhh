@@ -199,14 +199,22 @@ export class BoletasService {
   }
 
   async resumen(query: { anio?: string; mes?: string }) {
-    const qb = this.repo.createQueryBuilder('b');
+    const qb = this.repo
+      .createQueryBuilder('b')
+      .select('b.estado', 'estado')
+      .addSelect('COUNT(*)', 'n');
     if (query.anio) qb.andWhere('b.anio = :anio', { anio: Number(query.anio) });
     if (query.mes) qb.andWhere('b.mes = :mes', { mes: Number(query.mes) });
-    const todas = await qb.getMany();
+    qb.groupBy('b.estado');
+
+    const rows = await qb.getRawMany<{ estado: string; n: string }>();
+    const contar = (estado: string) =>
+      Number(rows.find((r) => r.estado === estado)?.n ?? 0);
+
     return {
-      total: todas.length,
-      firmadas: todas.filter((b) => b.estado === 'FIRMADA').length,
-      pendientes: todas.filter((b) => b.estado === 'PENDIENTE').length,
+      total: rows.reduce((sum, r) => sum + Number(r.n), 0),
+      firmadas: contar('FIRMADA'),
+      pendientes: contar('PENDIENTE'),
     };
   }
 
@@ -287,40 +295,95 @@ export class BoletasService {
   }
 
   async porArea(query: { anio?: string; mes?: string; soloPendientes?: string }) {
+    // Consulta ligera: excluye detalle_json y firma_png (payloads grandes).
+    // El detalle completo se obtiene por boleta con GET /boletas/:id.
     const qb = this.repo
       .createQueryBuilder('b')
-      .leftJoinAndSelect('b.trabajador', 't')
-      .addOrderBy('t.area', 'ASC')
-      .addOrderBy('t.apellido_paterno', 'ASC')
-      .addOrderBy('t.apellido_materno', 'ASC');
+      .leftJoin('b.trabajador', 't')
+      .select('b.id', 'id')
+      .addSelect('b.periodo', 'periodo')
+      .addSelect('b.anio', 'anio')
+      .addSelect('b.mes', 'mes')
+      .addSelect('b.estado', 'estado')
+      .addSelect('b.emailEnviado', 'emailEnviado')
+      .addSelect('b.tokenFirma', 'tokenFirma')
+      .addSelect('b.tokenVer', 'tokenVer')
+      .addSelect('t.id', 'trabajadorId')
+      .addSelect('t.dni', 'dni')
+      .addSelect('t.nombres', 'nombres')
+      .addSelect('t.apellidoPaterno', 'apPaterno')
+      .addSelect('t.apellidoMaterno', 'apMaterno')
+      .addSelect('t.area', 'area')
+      .addSelect('t.email', 'email');
 
     if (query.anio) qb.andWhere('b.anio = :anio', { anio: Number(query.anio) });
     if (query.mes) qb.andWhere('b.mes = :mes', { mes: Number(query.mes) });
     if (query.soloPendientes === '1') {
       qb.andWhere('b.emailEnviado = :enviado', { enviado: false });
     }
+    qb.addOrderBy('t.area', 'ASC')
+      .addOrderBy('t.apellidoPaterno', 'ASC')
+      .addOrderBy('t.apellidoMaterno', 'ASC');
 
-    const boletas = await qb.getMany();
+    const rows = await qb.getRawMany<{
+      id: number;
+      periodo: string;
+      anio: number;
+      mes: number;
+      estado: string;
+      emailEnviado: boolean;
+      tokenFirma: string | null;
+      tokenVer: string | null;
+      trabajadorId: number;
+      dni: string;
+      nombres: string;
+      apPaterno: string | null;
+      apMaterno: string | null;
+      area: string | null;
+      email: string | null;
+    }>();
 
-    const grupos = new Map<string, Boleta[]>();
-    for (const b of boletas) {
-      const area = (b.trabajador.area || '').trim() || 'Sin área';
+    const front = this.frontUrl();
+    const items = rows.map((r) => ({
+      id: r.id,
+      periodo: r.periodo,
+      anio: r.anio,
+      mes: r.mes,
+      estado: r.estado,
+      emailEnviado: !!r.emailEnviado,
+      tokenFirma: r.tokenFirma,
+      tokenVer: r.tokenVer,
+      trabajador: {
+        id: r.trabajadorId,
+        dni: r.dni,
+        email: (r.email || '').trim(),
+        area: (r.area || '').trim(),
+        nombreCompleto:
+          `${r.apPaterno || ''} ${r.apMaterno || ''} ${r.nombres || ''}`.trim(),
+      },
+      urlFirma: r.tokenFirma ? `${front}/firmar/${r.tokenFirma}` : null,
+      urlVer: r.tokenVer ? `${front}/ver/${r.tokenVer}` : null,
+    }));
+
+    const grupos = new Map<string, typeof items>();
+    for (const it of items) {
+      const area = it.trabajador.area || 'Sin área';
       if (!grupos.has(area)) grupos.set(area, []);
-      grupos.get(area)!.push(b);
+      grupos.get(area)!.push(it);
     }
 
     const areas = Array.from(grupos.entries())
       .map(([area, lista]) => ({
         area,
         total: lista.length,
-        firmadas: lista.filter((b) => b.estado === 'FIRMADA').length,
-        pendientes: lista.filter((b) => b.estado === 'PENDIENTE').length,
-        sinCorreo: lista.filter((b) => !b.emailEnviado).length,
-        boletas: lista.map((b) => this.conUrls(b)),
+        firmadas: lista.filter((x) => x.estado === 'FIRMADA').length,
+        pendientes: lista.filter((x) => x.estado === 'PENDIENTE').length,
+        sinCorreo: lista.filter((x) => !x.emailEnviado).length,
+        boletas: lista,
       }))
       .sort((a, b) => a.area.localeCompare(b.area));
 
-    return { total: boletas.length, areas };
+    return { total: items.length, areas };
   }
 
   async marcarEmailEnviado(
@@ -458,13 +521,24 @@ export class BoletasService {
     ids: number[],
     actor?: ActorAuditoria,
   ) {
+    const delayMs = Math.max(
+      0,
+      Number(this.config.get<string>('SMTP_DELAY_MS', '1500')),
+    );
+    const inicio = Date.now();
     let enviados = 0;
     let sinEmail = 0;
     let yaEnviados = 0;
     let errores = 0;
+    let topeAlcanzado = false;
     const sinEmailDetalle: { nombre: string; area: string }[] = [];
+    const erroresDetalle: { nombre: string; periodo: string; motivo: string }[] = [];
 
     for (const id of ids) {
+      if (this.mail.restantesHoy() <= 0) {
+        topeAlcanzado = true;
+        break;
+      }
       const boleta = await this.repo.findOne({
         where: { id },
         relations: { trabajador: true },
@@ -502,10 +576,19 @@ export class BoletasService {
         boleta.fechaEmail = new Date();
         await this.repo.save(boleta);
         enviados++;
-      } catch {
+      } catch (e) {
         errores++;
+        erroresDetalle.push({
+          nombre: boleta.trabajador.nombreCompleto,
+          periodo: boleta.periodo,
+          motivo: (e as Error).message,
+        });
       }
+      if (delayMs > 0) await this.dormir(delayMs);
     }
+
+    const duracionSeg = Math.round((Date.now() - inicio) / 1000);
+    const estadoCorreo = this.mail.estadoCorreo();
 
     await this.auditar(
       'envio_masivo',
@@ -518,6 +601,9 @@ export class BoletasService {
         sinEmail,
         yaEnviados,
         errores,
+        topeAlcanzado,
+        usadosHoy: estadoCorreo.usadosHoy,
+        restantesHoy: estadoCorreo.restantesHoy,
       }),
     );
 
@@ -528,7 +614,24 @@ export class BoletasService {
       yaEnviados,
       errores,
       sinEmailDetalle,
+      erroresDetalle,
+      topeAlcanzado,
+      duracionSeg,
+      usadosHoy: estadoCorreo.usadosHoy,
+      restantesHoy: estadoCorreo.restantesHoy,
+      limiteDiario: estadoCorreo.limiteDiario,
+      smtpEstado: estadoCorreo.estado,
+      ultimoError: estadoCorreo.ultimoError,
+      ultimoErrorFecha: estadoCorreo.ultimoErrorFecha,
     };
+  }
+
+  async estadoCorreo() {
+    return this.mail.estadoCorreo();
+  }
+
+  private dormir(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   async exportarCsv(query: { anio?: string; mes?: string; soloPendientes?: string }) {

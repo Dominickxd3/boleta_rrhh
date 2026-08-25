@@ -17,9 +17,33 @@ export interface CorreoBoletaFirmadaArgs {
   pdfBuffer: Uint8Array;
 }
 
+export type EstadoCorreo =
+  | 'ok'
+  | 'bloqueado'
+  | 'indisponible'
+  | 'no_configurado'
+  | 'auth'
+  | 'cuota'
+  | 'rechazado';
+
+export interface CorreoEstadoInfo {
+  configurado: boolean;
+  limiteDiario: number;
+  usadosHoy: number;
+  restantesHoy: number;
+  estado: EstadoCorreo;
+  ultimoError: string | null;
+  ultimoErrorFecha: string | null;
+}
+
 @Injectable()
 export class MailService {
   private transporter: Transporter | null = null;
+  private usadosHoy = 0;
+  private diaContador = '';
+  private ultimoEstado: EstadoCorreo = 'no_configurado';
+  private ultimoError: string | null = null;
+  private ultimoErrorFecha: string | null = null;
 
   constructor(private readonly config: ConfigService) {
     const host = this.config.get<string>('SMTP_HOST');
@@ -32,6 +56,12 @@ export class MailService {
         port,
         secure: port === 465,
         auth: { user, pass },
+        pool: true,
+        maxConnections: 1,
+        maxMessages: 200,
+        connectionTimeout: 20000,
+        greetingTimeout: 20000,
+        socketTimeout: 60000,
       });
     }
   }
@@ -47,6 +77,131 @@ export class MailService {
     return this.transporter !== null;
   }
 
+  // ===== Contador diario (límite de Gmail 500/día, tope configurable) =====
+  private hoy(): string {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  private resetSiCambioDia(): void {
+    const h = this.hoy();
+    if (this.diaContador !== h) {
+      this.diaContador = h;
+      this.usadosHoy = 0;
+    }
+  }
+
+  limiteDiario(): number {
+    return Number(this.config.get<string>('SMTP_DAILY_LIMIT', '450'));
+  }
+
+  usadosHoyValor(): number {
+    this.resetSiCambioDia();
+    return this.usadosHoy;
+  }
+
+  restantesHoy(): number {
+    this.resetSiCambioDia();
+    return Math.max(0, this.limiteDiario() - this.usadosHoy);
+  }
+
+  estadoCorreo(): CorreoEstadoInfo {
+    return {
+      configurado: this.transporter !== null,
+      limiteDiario: this.limiteDiario(),
+      usadosHoy: this.usadosHoyValor(),
+      restantesHoy: this.restantesHoy(),
+      estado: this.ultimoEstado,
+      ultimoError: this.ultimoError,
+      ultimoErrorFecha: this.ultimoErrorFecha,
+    };
+  }
+
+  private registrarIntento(): void {
+    this.resetSiCambioDia();
+    this.usadosHoy++;
+  }
+
+  // ===== Reintentos con backoff =====
+  private dormir(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private esTransitorio(err: unknown): boolean {
+    const e = err as { responseCode?: unknown; message?: unknown; code?: unknown };
+    if (!e) return false;
+    const code = e.responseCode;
+    if (typeof code === 'number') return code >= 400 && code < 500;
+    const msg = String(e.message ?? e.code ?? '').toLowerCase();
+    return /timeout|econn|esocket|enotfound|socket|temporar|too many|rate|eai_|eagain/.test(
+      msg,
+    );
+  }
+
+  private textoError(err: unknown): string {
+    const e = err as { message?: unknown; code?: unknown; response?: unknown };
+    const msg = String(e?.message ?? '');
+    const code = (e as { responseCode?: unknown })?.responseCode;
+    return typeof code === 'number' ? `Código ${code}: ${msg}` : msg;
+  }
+
+  private clasificar(err: unknown): EstadoCorreo {
+    const e = err as { responseCode?: unknown; message?: unknown; code?: unknown };
+    const code = e?.responseCode;
+    const msg = String(e?.message ?? e?.code ?? '').toLowerCase();
+
+    // Error de autenticación: cuenta rechazada / bloqueada / clave de app inválida
+    if (
+      code === 535 ||
+      msg.includes('authentication') ||
+      msg.includes('invalid login') ||
+      msg.includes('credentials') ||
+      msg.includes('username and password') ||
+      msg.includes('auth')
+    ) {
+      return 'auth';
+    }
+    // Límite diario / cuota del proveedor (452 / 454 4.7.0 / too many messages)
+    if (
+      code === 452 ||
+      code === 454 ||
+      msg.includes('daily limit') ||
+      msg.includes('too many') ||
+      msg.includes('quota') ||
+      msg.includes('message rejected') ||
+      msg.includes('5.4.5') ||
+      msg.includes('5.2.1')
+    ) {
+      return 'cuota';
+    }
+    // Rechazo permanente (5xx): posible bloqueo por comportamiento sospechoso
+    if (typeof code === 'number' && code >= 500) return 'rechazado';
+    // Errores transitorios (4xx / red): posible throttling
+    if (this.esTransitorio(err)) return 'bloqueado';
+    return 'indisponible';
+  }
+
+  private async conReintentos(fn: () => Promise<void>): Promise<void> {
+    const intentos = 3;
+    let err: unknown;
+    for (let i = 0; i < intentos; i++) {
+      try {
+        await fn();
+        this.ultimoEstado = 'ok';
+        this.ultimoError = null;
+        this.ultimoErrorFecha = null;
+        return;
+      } catch (e) {
+        err = e;
+        if (!this.esTransitorio(e) || i === intentos - 1) break;
+        await this.dormir(1000 * 2 ** i);
+      }
+    }
+    this.ultimoEstado = this.clasificar(err);
+    this.ultimoError = this.textoError(err);
+    this.ultimoErrorFecha = new Date().toISOString();
+    throw err;
+  }
+
   private mesLabel(periodo: string): string {
     const anio = periodo.slice(0, 4);
     const mesNum = Number(periodo.slice(4, 6));
@@ -59,6 +214,7 @@ export class MailService {
 
   async enviarBoleta(args: CorreoBoletaArgs): Promise<boolean> {
     if (!this.transporter) {
+      this.ultimoEstado = 'no_configurado';
       throw new Error(
         'Correo no configurado: define SMTP_HOST, SMTP_USER y SMTP_PASS en backend/.env',
       );
@@ -80,17 +236,21 @@ export class MailService {
         </div>
       </div>`;
 
-    await this.transporter.sendMail({
-      from: this.desde(),
-      to: args.destinatario,
-      subject: `Boleta de Pago — ${mesLabel}`,
-      html,
+    this.registrarIntento();
+    await this.conReintentos(async () => {
+      await this.transporter!.sendMail({
+        from: this.desde(),
+        to: args.destinatario,
+        subject: `Boleta de Pago — ${mesLabel}`,
+        html,
+      });
     });
     return true;
   }
 
   async enviarBoletaFirmada(args: CorreoBoletaFirmadaArgs): Promise<boolean> {
     if (!this.transporter) {
+      this.ultimoEstado = 'no_configurado';
       throw new Error(
         'Correo no configurado: define SMTP_HOST, SMTP_USER y SMTP_PASS en backend/.env',
       );
@@ -121,18 +281,21 @@ export class MailService {
         </div>
       </div>`;
 
-    await this.transporter.sendMail({
-      from: this.desde(),
-      to: args.destinatario,
-      subject: `Confirmación de firma — Boleta de Pago ${mesLabel}`,
-      html,
-      attachments: [
-        {
-          filename: nombreArchivo,
-          content: Buffer.from(args.pdfBuffer),
-          contentType: 'application/pdf',
-        },
-      ],
+    this.registrarIntento();
+    await this.conReintentos(async () => {
+      await this.transporter!.sendMail({
+        from: this.desde(),
+        to: args.destinatario,
+        subject: `Confirmación de firma — Boleta de Pago ${mesLabel}`,
+        html,
+        attachments: [
+          {
+            filename: nombreArchivo,
+            content: Buffer.from(args.pdfBuffer),
+            contentType: 'application/pdf',
+          },
+        ],
+      });
     });
     return true;
   }
