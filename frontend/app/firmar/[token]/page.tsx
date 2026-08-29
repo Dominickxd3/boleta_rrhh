@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "next/navigation";
-import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
 import { Clock } from "lucide-react";
 import { apiFetch, API_URL } from "@/lib/api";
 import SignatureOnDocument from "@/components/SignatureOnDocument";
@@ -75,6 +74,7 @@ function VigenciaEnlace({ expira }: { expira: string }) {
 
 export default function FirmarPage() {
   const { token } = useParams<{ token: string }>();
+  const router = useRouter();
   const sigRef = useRef<InlineSignatureHandle>(null);
   const [info, setInfo] = useState<InfoFirma | null>(null);
   const [firma, setFirma] = useState<string | null>(null);
@@ -137,6 +137,14 @@ export default function FirmarPage() {
   useEffect(() => {
     cargar();
   }, [cargar]);
+
+  // Tras firmar ya no se consumen datos del servidor: la página se cierra sola a los minutos.
+  useEffect(() => {
+    if (!resultado) return;
+    const MINUTOS_AUTO = 3;
+    const t = setTimeout(() => router.replace("/"), MINUTOS_AUTO * 60 * 1000);
+    return () => clearTimeout(t);
+  }, [resultado, router]);
 
   const firmar = useCallback(async () => {
     if (!aceptaTerminos) {
@@ -434,18 +442,24 @@ export default function FirmarPage() {
       <main className="flex min-h-screen items-center justify-center px-4">
         <div className="w-full max-w-md rounded-xl bg-white p-8 text-center shadow">
           <div className="mb-3 text-5xl">✅</div>
-          <h1 className="mb-1 text-xl font-bold text-green-700">
+          <h1 className="mb-2 text-xl font-bold text-green-700">
             ¡Boleta firmada correctamente!
           </h1>
-          <p className="mb-4 text-gray-600">
-            {info.trabajador} — periodo {info.periodo}
+          <p className="mb-6 text-sm text-gray-600">
+            Su boleta de pago firmada fue enviada a su correo electrónico.
+            Revise su bandeja de entrada (incluyendo la carpeta de spam o correo
+            no deseado).
           </p>
-          <Link
-            href={resultado.urlVer}
-            className="inline-block rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700"
+          <button
+            type="button"
+            onClick={() => router.replace("/")}
+            className="w-full rounded-lg border border-neutral-300 px-4 py-2 font-medium text-neutral-600 hover:bg-neutral-100"
           >
-            Ver documento firmado
-          </Link>
+            Cerrar
+          </button>
+          <p className="mt-4 text-xs text-gray-400">
+            Esta página se cerrará automáticamente en unos minutos.
+          </p>
         </div>
       </main>
     );

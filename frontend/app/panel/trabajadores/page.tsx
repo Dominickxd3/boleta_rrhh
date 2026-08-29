@@ -141,6 +141,16 @@ export default function TrabajadoresPage() {
     e.preventDefault();
     if (!editandoId) return;
     setError("");
+    const conf = await Swal.fire({
+      icon: "question",
+      title: "Confirmar cambios",
+      text: `¿Guardar los cambios de ${form.nombres || "el trabajador"}?`,
+      showCancelButton: true,
+      confirmButtonText: "Guardar",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#2563eb",
+    });
+    if (!conf.isConfirmed) return;
     try {
       const body = {
         email: form.email || undefined,
@@ -155,6 +165,13 @@ export default function TrabajadoresPage() {
       setMostrarForm(false);
       cargar();
       cargarTotales();
+      await Swal.fire({
+        icon: "success",
+        title: "Cambios guardados",
+        text: "Los datos del trabajador se actualizaron correctamente",
+        timer: 1800,
+        showConfirmButton: false,
+      });
     } catch (err) {
       setError((err as Error).message);
     }

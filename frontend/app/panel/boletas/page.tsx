@@ -15,6 +15,7 @@ import {
 import Swal from "sweetalert2";
 import { apiFetch, API_URL, getToken } from "@/lib/api";
 import AreaSelect from "@/components/AreaSelect";
+import DetalleContenido from "@/components/BoletaContenido";
 import {
   Boleta,
   CorreoEstado,
@@ -24,9 +25,6 @@ import {
   PorAreaResultado,
 } from "@/lib/types";
 import { nombreMes } from "@/lib/format";
-
-const moneda = (n: number) =>
-  n.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const estadoSmtpInfo = (estado?: EnviarMasivoResultado["smtpEstado"]) => {
   switch (estado) {
@@ -232,6 +230,13 @@ export default function BoletasPage() {
       es.removeEventListener("boleta.firmada", onFirmada);
       es.close();
     };
+  }, [cargarPorArea]);
+
+  // Respaldo por si el stream SSE falla (p. ej. buffering de IIS/proxy):
+  // el panel igual se refresca solo y detecta firmas en tiempo real.
+  useEffect(() => {
+    const id = setInterval(() => cargarPorArea(), 30000);
+    return () => clearInterval(id);
   }, [cargarPorArea]);
 
   useEffect(() => {
@@ -1036,7 +1041,7 @@ export default function BoletasPage() {
           onClick={() => setVista(null)}
         >
           <div
-            className="w-full max-w-lg rounded-xl bg-white shadow-xl"
+            className="flex max-h-[90dvh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
@@ -1049,74 +1054,15 @@ export default function BoletasPage() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="p-5 space-y-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="font-semibold">{vista.trabajador.nombreCompleto}</p>
-                  <p className="text-xs text-gray-500">
-                    DNI {vista.trabajador.dni} · Periodo {vista.periodo}
-                    {vista.trabajador.area ? ` · ${vista.trabajador.area}` : ""}
-                  </p>
-                </div>
-                {vista.estado === "FIRMADA" ? (
-                  <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                    Firmada
-                  </span>
-                ) : (
-                  <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
-                    Pendiente
-                  </span>
-                )}
-              </div>
-
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
               {vista.detalle && (
-                <>
-                  {vista.detalle.ingresos && vista.detalle.ingresos.length > 0 && (
-                    <div>
-                      <p className="text-xs font-medium text-gray-500 uppercase mb-1">
-                        Ingresos
-                      </p>
-                      <div className="rounded-lg border divide-y divide-gray-100">
-                        {vista.detalle.ingresos.map((c, i) => (
-                          <div
-                            key={i}
-                            className="flex items-center justify-between px-3 py-1.5 text-sm"
-                          >
-                            <span>{c.concepto}</span>
-                            <span>S/ {moneda(c.monto)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {vista.detalle.descuentos &&
-                    vista.detalle.descuentos.length > 0 && (
-                      <div>
-                        <p className="text-xs font-medium text-gray-500 uppercase mb-1">
-                          Descuentos
-                        </p>
-                        <div className="rounded-lg border divide-y divide-gray-100">
-                          {vista.detalle.descuentos.map((c, i) => (
-                            <div
-                              key={i}
-                              className="flex items-center justify-between px-3 py-1.5 text-sm"
-                            >
-                              <span>{c.concepto}</span>
-                              <span className="text-red-600">
-                                - S/ {moneda(c.monto)}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  <div className="flex items-center justify-between border-t pt-3">
-                    <span className="font-medium">Neto a pagar</span>
-                    <span className="text-xl font-bold text-black">
-                      S/ {moneda(vista.detalle.netoPagar ?? 0)}
-                    </span>
-                  </div>
-                </>
+                <DetalleContenido
+                  detalle={vista.detalle}
+                  trabajador={vista.trabajador.nombreCompleto}
+                  dni={vista.trabajador.dni}
+                  periodo={vista.periodo}
+                  boletaId={vista.id}
+                />
               )}
             </div>
             <div className="flex justify-end border-t border-gray-100 px-5 py-4">
