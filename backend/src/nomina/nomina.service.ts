@@ -251,13 +251,13 @@ export class NominaService {
 
   private movimDe(f: Fila, concepto: string, diaBasico: number): string {
     if (concepto === 'SUELDO BASICO' && diaBasico > 0) {
-      return `${diaBasico.toFixed(2)} DIAS`;
+      return `${Math.round(diaBasico)} DIAS`;
     }
     if (/INASISTENCIA|FALTA/i.test(concepto)) {
       return '';
     }
     const horas = this.num(f.Horas);
-    if (horas > 0) return `${horas.toFixed(2)} HORAS`;
+    if (horas > 0) return `${horas} HORAS`;
     return '';
   }
 
@@ -325,11 +325,11 @@ export class NominaService {
       condicion: 'DOMICILIADO',
       otrosEmpRta5ta: 'NO TIENE',
       periodoTexto: `${remIni.slice(4, 6)}/${remIni.slice(0, 4)} - Del ${this.f8(remIni)} Al ${this.f8(remFin)}`,
-      diasLaborados: `${diaBasico} / ${totDias - diaBasico} / ${this.num(f0.todDiasDMedi)}`,
+      diasLaborados: `${this.num(f0.totDias)} / ${this.num(f0.totDiasFalta)} / ${this.num(f0.todDiasDMedi)}`,
       jornadaOrdinaria: `${this.num(f0.totHoras)} / ${this.num(f0.totMinuto)}`,
       sobretiempo: `${this.num(f0.totHorasSob)} / ${this.num(f0.totMinutoSob)}`,
-      diasLab: diaBasico,
-      diasNL: totDias - diaBasico,
+      diasLab: this.num(f0.totDias),
+      diasNL: Math.max(0, this.num(f0.totDiasFalta)),
       diasSub: this.num(f0.todDiasDMedi),
       horasExtra: this.num(f0.totHorasSob),
       minutos: this.num(f0.totMinuto),

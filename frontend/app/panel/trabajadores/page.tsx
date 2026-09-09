@@ -51,7 +51,11 @@ export default function TrabajadoresPage() {
       const qs = new URLSearchParams();
       if (busqueda) qs.set("busqueda", busqueda);
       qs.set("soloActivos", "true");
-      setLista(await apiFetch<Worker[]>(`/trabajadores?${qs.toString()}`));
+      setLista(
+        await apiFetch<Worker[]>(`/trabajadores?${qs.toString()}`, {
+          cache: "no-store",
+        }),
+      );
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -98,9 +102,7 @@ export default function TrabajadoresPage() {
       await Swal.fire({
         icon: "success",
         title: "Sincronización completada",
-        html: `<b>${res.trabajadoresErp}</b> trabajadores del ERP<br/>` +
-          `<b>${res.nuevos}</b> nuevos · <b>${res.actualizados}</b> actualizados · <b>${res.inactivos}</b> inactivos<br/>` +
-          `Ahora <b>${res.totalActivos}</b> activos en total`,
+        html: `Actualmente tienes <b>${res.totalActivos}</b> trabajadores activos`,
         confirmButtonColor: "#059669",
       });
     } catch (e) {
@@ -137,14 +139,44 @@ export default function TrabajadoresPage() {
   const set = (campo: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [campo]: e.target.value }));
 
-  const guardar = async (e: React.FormEvent) => {
+  const guardar = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editandoId) return;
+    const fd = new FormData(e.currentTarget);
+    const email = String(fd.get("email") ?? "").trim();
+    const telefono = String(fd.get("telefono") ?? "").trim();
     setError("");
+    const faltantes: string[] = [];
+    if (!email) faltantes.push("correo");
+    if (!telefono) faltantes.push("teléfono");
+    if (faltantes.length > 0) {
+      const texto =
+        faltantes.length === 2
+          ? "Debes llenar el correo y el teléfono del trabajador antes de guardar."
+          : `Debes llenar el ${faltantes[0]} del trabajador antes de guardar.`;
+      await Swal.fire({
+        icon: "warning",
+        title: "Campos incompletos",
+        text: texto,
+        confirmButtonText: "Entendido",
+        confirmButtonColor: "#d97706",
+      });
+      return;
+    }
+    const conf = await Swal.fire({
+      icon: "question",
+      title: "Confirmar cambios",
+      text: `¿Guardar los cambios de ${form.nombres || "el trabajador"}?`,
+      showCancelButton: true,
+      confirmButtonText: "Guardar",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#2563eb",
+    });
+    if (!conf.isConfirmed) return;
     try {
       const body = {
-        email: form.email || undefined,
-        telefono: form.telefono || undefined,
+        email: email || undefined,
+        telefono: telefono || undefined,
       };
       await apiFetch(`/trabajadores/${editandoId}`, {
         method: "PATCH",
@@ -153,8 +185,15 @@ export default function TrabajadoresPage() {
       setForm(vacio);
       setEditandoId(null);
       setMostrarForm(false);
-      cargar();
-      cargarTotales();
+      await cargar();
+      await cargarTotales();
+      await Swal.fire({
+        icon: "success",
+        title: "Cambios guardados",
+        text: "Los datos del trabajador se actualizaron correctamente",
+        timer: 1800,
+        showConfirmButton: false,
+      });
     } catch (err) {
       setError((err as Error).message);
     }
@@ -202,10 +241,7 @@ export default function TrabajadoresPage() {
       </div>
 
       {mostrarForm && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={cancelarEdicion}
-        >
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div
             className="w-full max-w-lg rounded-xl bg-white shadow-xl"
             onClick={(e) => e.stopPropagation()}
@@ -252,15 +288,23 @@ export default function TrabajadoresPage() {
                 <div>
                   <label className="text-xs font-medium">Email</label>
                   <input
+                    name="email"
                     value={form.email}
                     onChange={set("email")}
                     type="email"
+                    autoComplete="off"
                     className={input}
                   />
                 </div>
                 <div>
                   <label className="text-xs font-medium">Teléfono</label>
-                  <input value={form.telefono} onChange={set("telefono")} className={input} />
+                  <input
+                    name="telefono"
+                    value={form.telefono}
+                    onChange={set("telefono")}
+                    autoComplete="off"
+                    className={input}
+                  />
                 </div>
               </div>
               <div className="flex gap-2 pt-2">
@@ -322,9 +366,6 @@ export default function TrabajadoresPage() {
               style={{ width: `${progreso}%` }}
             />
           </div>
-          <p className="text-xs text-gray-500">
-            Cargando la planilla actual desde DB_GP_Trabajos_TEST…
-          </p>
         </div>
       )}
 

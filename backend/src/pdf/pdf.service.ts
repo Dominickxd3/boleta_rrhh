@@ -202,7 +202,7 @@ export class PdfService {
         centroCostos: d?.centroCostos,
         situacion: d?.situacion,
         documento: d?.documento,
-        diasLab: Number(d?.diasLab ?? 0),
+        diasLab: Math.max(0, Number(d?.diasLab ?? 0)),
         diasNL,
         diasSub: Number(d?.diasSub ?? 0),
         horasExtra: Number(d?.horasExtra ?? 0),
@@ -484,7 +484,7 @@ export class PdfService {
 
     const y3 = y2 - h2;
     this.valorCelda(ctx, cols[0], cols[1], y3, String(detalle.diasLab ?? 0), { bold: false, mono: true, centro: true });
-    this.valorCelda(ctx, cols[1], cols[2], y3, String(detalle.diasNL ?? 0), { bold: false, mono: true, centro: true });
+    this.valorCelda(ctx, cols[1], cols[2], y3, String(Math.max(0, Number(detalle.diasNL ?? 0))), { bold: false, mono: true, centro: true });
     this.valorCelda(ctx, cols[2], cols[3], y3, String(detalle.diasSub ?? 0), { bold: false, mono: true, centro: true });
     this.valorCelda(ctx, cols[3], cols[4], y3, this.tituloPropio(detalle.condicion || '-'), { bold: false, centro: true, tam: 7 });
     this.valorCelda(ctx, cols[4], cols[5], y3, String(detalle.totHoras ?? 0), { bold: false, mono: true, centro: true });

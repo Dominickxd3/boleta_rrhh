@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'node:crypto';
@@ -9,11 +9,47 @@ import { MailService } from '../mail/mail.service';
 import { WorkersService } from '../workers/workers.service';
 import { PdfService } from '../pdf/pdf.service';
 import { AuditoriaService, type ActorAuditoria } from '../auditoria/auditoria.service';
+import { EventBusService } from '../events/event-bus.service';
 import { Boleta } from './boleta.entity';
 import { CreateBoletaDto } from './dto/create-boleta.dto';
 
+interface CachéPorArea {
+  data: PorAreaData;
+  expira: number;
+}
+
+export interface PorAreaItem {
+  id: number;
+  periodo: string;
+  anio: number;
+  mes: number;
+  estado: string;
+  emailEnviado: boolean;
+  [k: string]: unknown;
+}
+
+export interface PorAreaGrupo {
+  area: string;
+  total: number;
+  firmadas: number;
+  pendientes: number;
+  sinCorreo: number;
+  boletas: PorAreaItem[];
+}
+
+export interface PorAreaData {
+  total: number;
+  areas: PorAreaGrupo[];
+}
+
 @Injectable()
-export class BoletasService {
+export class BoletasService implements OnModuleInit {
+  // Caché en memoria del endpoint por-area: evita el viaje a la BD en cada
+  // consulta del panel. Al firmar se actualiza en memoria (sin tocar la BD)
+  // para que el estado FIRMADA se refleje al instante (~ms).
+  private cachéPorArea = new Map<string, CachéPorArea>();
+  private readonly TTL_POR_AREA = 15_000;
+
   constructor(
     @InjectRepository(Boleta) private readonly repo: Repository<Boleta>,
     private readonly workers: WorkersService,
@@ -21,7 +57,44 @@ export class BoletasService {
     private readonly mail: MailService,
     private readonly config: ConfigService,
     private readonly auditoria: AuditoriaService,
+    private readonly events: EventBusService,
   ) {}
+
+  onModuleInit() {
+    // Al firmar una boleta, actualiza en memoria (sin BD) la boleta afectada
+    // para que el panel refleje el estado FIRMADA al instante.
+    this.events.on('boleta.firmada', (payload: { boletaId?: number }) => {
+      if (payload && typeof payload.boletaId === 'number') {
+        this.actualizarCachePorFirma(payload.boletaId);
+      }
+    });
+  }
+
+  /** Marca como FIRMADA una boleta en la caché y recalcula los conteos, sin consultar la BD. */
+  private actualizarCachePorFirma(boletaId: number) {
+    const ahora = Date.now();
+    for (const [clave, cache] of this.cachéPorArea) {
+      if (cache.expira <= ahora) {
+        this.cachéPorArea.delete(clave);
+        continue;
+      }
+      let cambiado = false;
+      for (const area of cache.data.areas) {
+        const item = area.boletas.find((b) => b.id === boletaId);
+        if (item && item.estado !== 'FIRMADA') {
+          item.estado = 'FIRMADA';
+          cambiado = true;
+        }
+      }
+      if (cambiado) {
+        for (const area of cache.data.areas) {
+          area.firmadas = area.boletas.filter((x) => x.estado === 'FIRMADA').length;
+          area.pendientes = area.boletas.filter((x) => x.estado === 'PENDIENTE').length;
+        }
+        cache.data.total = cache.data.areas.reduce((s, a) => s + a.boletas.length, 0);
+      }
+    }
+  }
 
   async auditar(
     accion: string,
@@ -80,8 +153,9 @@ export class BoletasService {
   }
 
   private conUrls(boleta: Boleta) {
+    const { firmaPng: _firmaPng, detalleJson: _detalleJson, ...resto } = boleta;
     return {
-      ...boleta,
+      ...resto,
       detalle: this.leerDetalle(boleta),
       urlFirma: boleta.tokenFirma
         ? `${this.frontUrl()}/firmar/${boleta.tokenFirma}`
@@ -96,6 +170,7 @@ export class BoletasService {
     dto: CreateBoletaDto,
     actor?: ActorAuditoria,
   ) {
+    this.cachéPorArea.clear();
     await this.workers.findOne(dto.trabajadorId);
 
     const periodo = dto.periodo;
@@ -295,6 +370,13 @@ export class BoletasService {
   }
 
   async porArea(query: { anio?: string; mes?: string; soloPendientes?: string }) {
+    const clave = `${query.anio ?? ''}-${query.mes ?? ''}-${query.soloPendientes ?? ''}`;
+    const ahora = Date.now();
+    const cache = this.cachéPorArea.get(clave);
+    if (cache && cache.expira > ahora) {
+      return cache.data;
+    }
+
     // Consulta ligera: excluye detalle_json y firma_png (payloads grandes).
     // El detalle completo se obtiene por boleta con GET /boletas/:id.
     const qb = this.repo
@@ -383,13 +465,21 @@ export class BoletasService {
       }))
       .sort((a, b) => a.area.localeCompare(b.area));
 
-    return { total: items.length, areas };
+    const resultado = { total: items.length, areas };
+
+    this.cachéPorArea.set(clave, {
+      data: resultado,
+      expira: ahora + this.TTL_POR_AREA,
+    });
+
+    return resultado;
   }
 
   async marcarEmailEnviado(
     id: number,
     actor?: ActorAuditoria,
   ) {
+    this.cachéPorArea.clear();
     const boleta = await this.repo.findOne({ where: { id } });
     if (!boleta) throw new NotFoundException('Boleta no encontrada');
     boleta.emailEnviado = true;
@@ -412,6 +502,7 @@ export class BoletasService {
     id: number,
     actor?: ActorAuditoria,
   ) {
+    this.cachéPorArea.clear();
     const boleta = await this.repo.findOne({
       where: { id },
       relations: { trabajador: true },
@@ -461,6 +552,7 @@ export class BoletasService {
     id: number,
     actor?: ActorAuditoria,
   ) {
+    this.cachéPorArea.clear();
     const boleta = await this.repo.findOne({
       where: { id },
       relations: { trabajador: true },
@@ -521,6 +613,7 @@ export class BoletasService {
     ids: number[],
     actor?: ActorAuditoria,
   ) {
+    this.cachéPorArea.clear();
     const delayMs = Math.max(
       0,
       Number(this.config.get<string>('SMTP_DELAY_MS', '1500')),
@@ -547,9 +640,15 @@ export class BoletasService {
         errores++;
         continue;
       }
-      if (boleta.emailEnviado) {
-        yaEnviados++;
-        continue;
+      // Si el enlace ya venció, se genera un token nuevo (enlace fresco), igual que el envío individual.
+      const vencido =
+        boleta.estado !== 'FIRMADA' &&
+        !!boleta.firmaExpira &&
+        boleta.firmaExpira.getTime() < Date.now();
+      if (vencido) {
+        boleta.tokenFirma = this.generarToken();
+        boleta.firmaExpira = this.fechaExpiracion();
+        await this.repo.save(boleta);
       }
       const email = (boleta.trabajador.email || '').trim();
       if (!email) {
@@ -695,6 +794,7 @@ export class BoletasService {
     id: number,
     actor?: ActorAuditoria,
   ) {
+    this.cachéPorArea.clear();
     const boleta = await this.repo.findOne({ where: { id } });
     if (!boleta) throw new NotFoundException('Boleta no encontrada');
     if (boleta.rutaPdf) {
