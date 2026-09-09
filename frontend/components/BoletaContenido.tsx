@@ -95,6 +95,11 @@ function DetalleContenido({
     </div>
   );
 
+  const nombreTrabajador = String(
+    detalle.trabajadorNombre || trabajador || "",
+  ).trim().toUpperCase();
+  const dniTrabajador = String(detalle.dni || dni || "").trim();
+
   return (
     <div className="space-y-3">
       {/* ENCABEZADO: logo + datos empresa + título */}
@@ -127,8 +132,8 @@ function DetalleContenido({
 
       {/* IDENTIDAD */}
       <Bloque titulo="Datos del trabajador">
-        <Campo etiqueta="Documento de identidad" valor={`DNI ${dni}`} mono />
-        <Campo etiqueta="Apellidos y nombre" valor={trabajador.toUpperCase()} />
+        <Campo etiqueta="Documento de identidad" valor={`DNI ${dniTrabajador}`} mono />
+        <Campo etiqueta="Apellidos y nombre" valor={nombreTrabajador} />
         <Campo etiqueta="Situación" valor={detalle.situacion || "-"} />
       </Bloque>
 

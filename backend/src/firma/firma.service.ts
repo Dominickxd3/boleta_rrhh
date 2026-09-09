@@ -58,8 +58,8 @@ export class FirmaService {
 
     return {
       boletaId: boleta.id,
-      trabajador: boleta.trabajador.nombreCompleto,
-      dni: boleta.trabajador.dni,
+      trabajador: this.boletas.nombreTrabajador(boleta),
+      dni: this.boletas.dniTrabajador(boleta),
       periodo: boleta.periodo,
       anio: boleta.anio,
       mes: boleta.mes,
@@ -109,7 +109,7 @@ export class FirmaService {
       periodo: guardada.periodo,
       anio: guardada.anio,
       mes: guardada.mes,
-      trabajador: guardada.trabajador.nombreCompleto,
+      trabajador: this.boletas.nombreTrabajador(guardada),
       fechaFirmado: guardada.fechaFirmado,
     });
 
@@ -117,13 +117,13 @@ export class FirmaService {
     const email = (guardada.trabajador.email || '').trim();
     if (email && this.mail.configurado()) {
       try {
-        const dni = guardada.trabajador.dni || '';
+        const dni = this.boletas.dniTrabajador(guardada);
         const pdfProtegido = dni
           ? await this.pdf.protegerConClave(buffer, dni)
           : buffer;
         await this.mail.enviarBoletaFirmada({
           destinatario: email,
-          nombreTrabajador: guardada.trabajador.nombreCompleto,
+          nombreTrabajador: this.boletas.nombreTrabajador(guardada),
           periodo: guardada.periodo,
           pdfBuffer: pdfProtegido,
         });
@@ -133,7 +133,7 @@ export class FirmaService {
     }
 
     await this.auditoria.registrar({
-      usuario: guardada.trabajador.nombreCompleto,
+      usuario: this.boletas.nombreTrabajador(guardada),
       ip: actor?.ip ?? null,
       userAgent: actor?.userAgent ?? null,
       accion: 'firma_boleta',
@@ -144,7 +144,7 @@ export class FirmaService {
 
     return {
       mensaje: 'Boleta firmada correctamente',
-      trabajador: boleta.trabajador.nombreCompleto,
+      trabajador: this.boletas.nombreTrabajador(boleta),
       periodo: boleta.periodo,
       fechaFirmado: guardada.fechaFirmado,
       rutaPdf: ruta,
@@ -157,7 +157,7 @@ export class FirmaService {
     if (!boleta) throw new NotFoundException('El enlace de firma no es válido');
     this.validarExpirado(boleta);
     const buffer = await this.pdf.generarBoleta(boleta);
-    const nombre = `boleta-${boleta.periodo}-${boleta.trabajador.dni}.pdf`;
+    const nombre = `boleta-${boleta.periodo}-${this.boletas.dniTrabajador(boleta)}.pdf`;
     return { buffer, nombre };
   }
 
@@ -169,8 +169,8 @@ export class FirmaService {
     }
     return {
       boletaId: boleta.id,
-      trabajador: boleta.trabajador.nombreCompleto,
-      dni: boleta.trabajador.dni,
+      trabajador: this.boletas.nombreTrabajador(boleta),
+      dni: this.boletas.dniTrabajador(boleta),
       periodo: boleta.periodo,
       anio: boleta.anio,
       mes: boleta.mes,

@@ -29,6 +29,8 @@ export interface Detalle {
   centroCostos?: string;
   situacion?: string;
   documento?: string;
+  dni?: string;
+  trabajadorNombre?: string;
   diasLab?: number;
   diasNL?: number;
   diasSub?: number;

@@ -36,6 +36,8 @@ interface Detalle {
   centroCostos?: string;
   situacion?: string;
   documento?: string;
+  dni?: string;
+  trabajadorNombre?: string;
   diasLab?: number;
   diasNL?: number;
   diasSub?: number;
@@ -202,6 +204,8 @@ export class PdfService {
         centroCostos: d?.centroCostos,
         situacion: d?.situacion,
         documento: d?.documento,
+        dni: d?.dni,
+        trabajadorNombre: d?.trabajadorNombre,
         diasLab: Math.max(0, Number(d?.diasLab ?? 0)),
         diasNL,
         diasSub: Number(d?.diasSub ?? 0),
@@ -421,10 +425,13 @@ export class PdfService {
     this.tituloCelda(ctx, cols[3], cols[4], top, 'SITUACIÓN');
 
     const vy = top - h1;
-    const dni = (boleta.trabajador.dni || '').trim();
+    const dni = String(detalle.dni || boleta.trabajador?.dni || '').trim();
+    const nombre = String(
+      detalle.trabajadorNombre || boleta.trabajador?.nombreCompleto || '',
+    ).trim().toUpperCase();
     this.valorCelda(ctx, cols[0], cols[1], vy, 'DNI', { bold: true, centro: true });
     this.valorCelda(ctx, cols[1], cols[2], vy, dni, { bold: false, mono: true, centro: true });
-    this.valorCelda(ctx, cols[2], cols[3], vy, boleta.trabajador.nombreCompleto.toUpperCase(), { bold: true, centro: true });
+    this.valorCelda(ctx, cols[2], cols[3], vy, nombre, { bold: true, centro: true });
     this.valorCelda(ctx, cols[3], cols[4], vy, detalle.situacion || '-', { bold: false, centro: true });
 
     ctx.y = vy - h2 - 4;
@@ -778,9 +785,12 @@ export class PdfService {
     centrar(ctx.helvetica, 7, 40, 270, 90, 'Empleador');
 
     // Lado derecho: Colaborador
-    const nombre = boleta.trabajador.nombreCompleto.toUpperCase();
-    centrar(ctx.bold, 8, 330, 540, 106, nombre);
-    centrar(ctx.helvetica, 7, 330, 540, 98, `DNI: ${boleta.trabajador.dni || ''}`);
+    const nombreColab = String(
+      detalle.trabajadorNombre || boleta.trabajador?.nombreCompleto || '',
+    ).trim().toUpperCase();
+    const dniColab = String(detalle.dni || boleta.trabajador?.dni || '').trim();
+    centrar(ctx.bold, 8, 330, 540, 106, nombreColab);
+    centrar(ctx.helvetica, 7, 330, 540, 98, `DNI: ${dniColab}`);
     centrar(ctx.bold, 7.5, 330, 540, 90, 'Colaborador');
   }
 

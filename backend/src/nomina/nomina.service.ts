@@ -22,6 +22,8 @@ export interface DetalleNomina {
   totDias: number;
   totHoras: number;
   documento: string;
+  dni: string;
+  trabajadorNombre: string;
   situacion: string;
   fIngreso: string;
   fCese: string;
@@ -314,6 +316,8 @@ export class NominaService {
       totDias,
       totHoras: this.num(f0.totHoras),
       documento: `DNI ${this.txt(f0.tra_nrodni)}`,
+      dni: this.txt(f0.tra_nrodni),
+      trabajadorNombre: `${this.txt(f0.tra_apepat)} ${this.txt(f0.tra_apemat)} ${this.txt(f0.tra_nombre)}`.trim(),
       situacion: est === '0' ? 'ACTIVO' : est,
       fIngreso: this.f8(f0.reg_fecins),
       fCese: '',
@@ -401,6 +405,9 @@ export class NominaService {
       const dni = this.txt(f0.tra_nrodni);
       const area = this.txt(f0.cc_descri);
 
+      // La importación de boletas es INDEPENDIENTE de la sincronización de
+      // trabajadores: solo crea el trabajador si realmente no existe (INSERT),
+      // pero NUNCA modifica el área/cargo/estado de trabajadores ya registrados.
       let worker = porDni.get(dni);
       if (!worker) {
         worker = await this.workers.create({
@@ -412,13 +419,6 @@ export class NominaService {
         });
         porDni.set(dni, worker);
         trabajadoresCreados++;
-      } else if (area && worker.area !== area) {
-        worker = await this.workers.update(worker.id, {
-          area,
-          activo: true,
-        });
-      } else if (!worker.activo) {
-        worker = await this.workers.update(worker.id, { activo: true });
       }
 
       const boleta = await this.boletas.crearDesdeNomina(

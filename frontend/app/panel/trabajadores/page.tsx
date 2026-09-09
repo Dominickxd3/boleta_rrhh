@@ -505,13 +505,15 @@ export default function TrabajadoresPage() {
                       >
                         <Eye className="h-4 w-4" />
                       </button>
-                      <button
-                        onClick={() => editar(w)}
-                        title="Editar"
-                        className="rounded-lg bg-gray-100 p-1.5 text-gray-700 hover:bg-gray-200"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
+                      {w.activo && (
+                        <button
+                          onClick={() => editar(w)}
+                          title="Editar"
+                          className="rounded-lg bg-gray-100 p-1.5 text-gray-700 hover:bg-gray-200"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

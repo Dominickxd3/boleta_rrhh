@@ -841,6 +841,20 @@ export class BoletasService implements OnModuleInit {
     }
   }
 
+  /** Nombre del trabajador tal como estaba al generar la boleta (snapshot). */
+  nombreTrabajador(boleta: Boleta): string {
+    const d = this.leerDetalle(boleta) as Record<string, unknown>;
+    return String(
+      d?.trabajadorNombre || boleta.trabajador?.nombreCompleto || '',
+    ).trim();
+  }
+
+  /** DNI del trabajador tal como estaba al generar la boleta (snapshot). */
+  dniTrabajador(boleta: Boleta): string {
+    const d = this.leerDetalle(boleta) as Record<string, unknown>;
+    return String(d?.dni || boleta.trabajador?.dni || '').trim();
+  }
+
   existeArchivo(ruta: string): Promise<boolean> {
     return fs.access(ruta).then(() => true).catch(() => false);
   }

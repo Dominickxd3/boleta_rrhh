@@ -79,7 +79,13 @@ export class WorkersService {
     actor?: ActorAuditoria,
   ): Promise<Worker> {
     const worker = await this.findOne(id);
-    Object.assign(worker, dto);
+    // El ERP es la fuente maestra de los datos laborales (DNI, nombres,
+    // apellidos, área, cargo y estado). La edición manual solo permite
+    // actualizar el correo y el teléfono de contacto.
+    const cambios: Partial<Worker> = {};
+    if (typeof dto.email === 'string') cambios.email = dto.email.trim();
+    if (typeof dto.telefono === 'string') cambios.telefono = dto.telefono.trim();
+    Object.assign(worker, cambios);
     worker.modificadoPor = actor?.usuario ?? null;
     worker.modificadoIp = actor?.ip ?? null;
     worker.modificadoEn = new Date();
