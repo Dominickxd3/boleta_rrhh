@@ -16,6 +16,7 @@ import {
   clearToken,
   clearUsuario,
   getUsuario,
+  apiFetch,
   type Usuario,
 } from "@/lib/api";
 import Swal from "sweetalert2";
@@ -101,6 +102,7 @@ export function AppSidebar() {
       confirmButtonColor: "#dc2626",
     });
     if (!conf.isConfirmed) return;
+    apiFetch("/auth/logout", { method: "POST" }).catch(() => undefined);
     clearToken();
     clearUsuario();
     router.replace("/login");

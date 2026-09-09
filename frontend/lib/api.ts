@@ -1,15 +1,41 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
 
+// La sesión vive en sessionStorage: se limpia al cerrar la pestaña/navegador.
+// Se usa localStorage solo como respaldo de migración para usuarios ya logueados.
+function storage(): Storage | null {
+  return typeof window !== "undefined" ? window.sessionStorage : null;
+}
+
+function fallbackStorage(): Storage | null {
+  return typeof window !== "undefined" ? window.localStorage : null;
+}
+
+function migrarDesdeLocalStorage(): void {
+  const s = storage();
+  const fb = fallbackStorage();
+  if (!s || !fb) return;
+  if (!s.getItem("token") && fb.getItem("token")) {
+    const token = fb.getItem("token");
+    const usuario = fb.getItem("usuario");
+    if (token) s.setItem("token", token);
+    if (usuario) s.setItem("usuario", usuario);
+    fb.removeItem("token");
+    fb.removeItem("usuario");
+  }
+}
+
 export function getToken(): string | null {
-  return localStorage.getItem("token");
+  migrarDesdeLocalStorage();
+  return storage()?.getItem("token") ?? null;
 }
 
 export function setToken(token: string): void {
-  localStorage.setItem("token", token);
+  storage()?.setItem("token", token);
 }
 
 export function clearToken(): void {
-  localStorage.removeItem("token");
+  storage()?.removeItem("token");
+  fallbackStorage()?.removeItem("token");
 }
 
 export interface Usuario {
@@ -21,12 +47,13 @@ export interface Usuario {
 }
 
 export function setUsuario(usuario: Usuario): void {
-  localStorage.setItem("usuario", JSON.stringify(usuario));
+  storage()?.setItem("usuario", JSON.stringify(usuario));
 }
 
 export function getUsuario(): Usuario | null {
+  migrarDesdeLocalStorage();
   try {
-    const raw = localStorage.getItem("usuario");
+    const raw = storage()?.getItem("usuario");
     return raw ? (JSON.parse(raw) as Usuario) : null;
   } catch {
     return null;
@@ -34,7 +61,8 @@ export function getUsuario(): Usuario | null {
 }
 
 export function clearUsuario(): void {
-  localStorage.removeItem("usuario");
+  storage()?.removeItem("usuario");
+  fallbackStorage()?.removeItem("usuario");
 }
 
 export async function loginRequest(
