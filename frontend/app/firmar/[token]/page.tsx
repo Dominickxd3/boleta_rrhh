@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { Clock } from "lucide-react";
 import { apiFetch, API_URL } from "@/lib/api";
 import SignatureOnDocument from "@/components/SignatureOnDocument";
@@ -74,7 +74,6 @@ function VigenciaEnlace({ expira }: { expira: string }) {
 
 export default function FirmarPage() {
   const { token } = useParams<{ token: string }>();
-  const router = useRouter();
   const sigRef = useRef<InlineSignatureHandle>(null);
   const [info, setInfo] = useState<InfoFirma | null>(null);
   const [firma, setFirma] = useState<string | null>(null);
@@ -89,6 +88,12 @@ export default function FirmarPage() {
   const [aceptaTerminos, setAceptaTerminos] = useState(false);
   const isMobile = useIsMobile();
   const [padWidth, setPadWidth] = useState(300);
+  const [cerrada, setCerrada] = useState(false);
+
+  const cerrarPagina = useCallback(() => {
+    window.close();
+    setTimeout(() => setCerrada(true), 500);
+  }, []);
 
   useEffect(() => {
     const calc = () =>
@@ -142,9 +147,9 @@ export default function FirmarPage() {
   useEffect(() => {
     if (!resultado) return;
     const MINUTOS_AUTO = 3;
-    const t = setTimeout(() => router.replace("/"), MINUTOS_AUTO * 60 * 1000);
+    const t = setTimeout(() => cerrarPagina(), MINUTOS_AUTO * 60 * 1000);
     return () => clearTimeout(t);
-  }, [resultado, router]);
+  }, [resultado, cerrarPagina]);
 
   const firmar = useCallback(async () => {
     if (!aceptaTerminos) {
@@ -418,6 +423,21 @@ export default function FirmarPage() {
     </div>
   );
 
+  if (cerrada) {
+    return (
+      <main className="flex min-h-screen items-center justify-center px-4">
+        <div className="w-full max-w-md rounded-xl bg-white p-8 text-center shadow">
+          <h1 className="mb-2 text-xl font-bold text-neutral-700">
+            Ya puede cerrar esta pestaña
+          </h1>
+          <p className="text-sm text-gray-500">
+            Su boleta ya quedó firmada. Gracias por usar BoletasGP.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   if (cargando) {
     return (
       <main className="flex min-h-screen items-center justify-center">
@@ -452,7 +472,7 @@ export default function FirmarPage() {
           </p>
           <button
             type="button"
-            onClick={() => router.replace("/")}
+            onClick={cerrarPagina}
             className="w-full rounded-lg border border-neutral-300 px-4 py-2 font-medium text-neutral-600 hover:bg-neutral-100"
           >
             Cerrar
