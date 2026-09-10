@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   BadgeCheck,
   Download,
   Eye,
   FileCheck2,
   FileText,
   Link2,
+  Lock,
   RefreshCw,
   Send,
   X,
@@ -25,6 +27,12 @@ import {
   PorAreaResultado,
 } from "@/lib/types";
 import { nombreMes } from "@/lib/format";
+import {
+  esPeriodoCerrado,
+  esPeriodoEnCurso,
+  getPeriodoPersistido,
+  guardarPeriodoPersistido,
+} from "@/lib/periodo";
 
 const estadoSmtpInfo = (estado?: EnviarMasivoResultado["smtpEstado"]) => {
   switch (estado) {
@@ -170,9 +178,29 @@ const resumenEnvioHtml = (res: EnviarMasivoResultado): string => {
 };
 
 export default function BoletasPage() {
-  const ahora = new Date();
-  const [anio, setAnio] = useState(String(ahora.getFullYear()));
-  const [mes, setMes] = useState(String(ahora.getMonth() + 1).padStart(2, "0"));
+  const [periodoSeleccion] = useState(() => getPeriodoPersistido());
+  const [anio, setAnio] = useState(periodoSeleccion.anio);
+  const [mes, setMes] = useState(periodoSeleccion.mes);
+
+  useEffect(() => {
+    const p = getPeriodoPersistido();
+    if (p.anio !== anio || p.mes !== mes) {
+      setAnio(p.anio);
+      setMes(p.mes);
+    }
+  }, []);
+
+  const cambiarAnio = (nuevoAnio: string) => {
+    setAnio(nuevoAnio);
+    guardarPeriodoPersistido(nuevoAnio, mes);
+    setSeleccionadas(new Set());
+  };
+
+  const cambiarMes = (nuevoMes: string) => {
+    setMes(nuevoMes);
+    guardarPeriodoPersistido(anio, nuevoMes);
+    setSeleccionadas(new Set());
+  };
   const [porArea, setPorArea] = useState<PorAreaResultado>({
     total: 0,
     areas: [],
@@ -323,6 +351,19 @@ export default function BoletasPage() {
     );
   }, [periodos, anio, mes]);
 
+  // Regla de negocio: ¿El período seleccionado está cerrado o en curso?
+  const esCerrado = useMemo(() => {
+    if (porArea.periodoInfo) return porArea.periodoInfo.esCerrado;
+    return esPeriodoCerrado(anio, mes);
+  }, [porArea.periodoInfo, anio, mes]);
+
+  const esEnCurso = useMemo(() => {
+    if (porArea.periodoInfo) return porArea.periodoInfo.esEnCurso;
+    return esPeriodoEnCurso(anio, mes);
+  }, [porArea.periodoInfo, anio, mes]);
+
+  const envioMasivoBloqueado = !esCerrado;
+
   const generar = async () => {
     const anomes = `${anio}${mes}`;
     if (!periodoDelMes) {
@@ -376,6 +417,15 @@ export default function BoletasPage() {
   };
 
   const enviarCorreo = async (b: Boleta) => {
+    if (envioMasivoBloqueado) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Período en curso",
+        text: "El envío de correos está bloqueado para el período actual hasta que finalice el mes.",
+        confirmButtonColor: "#2563eb",
+      });
+      return;
+    }
     const email = b.trabajador.email?.trim();
     if (!email) {
       await Swal.fire({
@@ -445,6 +495,7 @@ export default function BoletasPage() {
   };
 
   const toggleSeleccion = (id: number) => {
+    if (envioMasivoBloqueado) return;
     setSeleccionadas((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -457,6 +508,7 @@ export default function BoletasPage() {
   };
 
   const toggleTodos = (marcar: boolean) => {
+    if (envioMasivoBloqueado) return;
     setSeleccionadas((prev) => {
       const next = new Set(prev);
       for (const b of visibles) {
@@ -472,6 +524,15 @@ export default function BoletasPage() {
   };
 
   const enviarSeleccionadas = async () => {
+    if (envioMasivoBloqueado) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Período en curso",
+        text: "El período actual permanece bloqueado para el envío masivo hasta que finalice el mes.",
+        confirmButtonColor: "#2563eb",
+      });
+      return;
+    }
     const ids = Array.from(seleccionadas);
     const conf = await Swal.fire({
       icon: "question",
@@ -571,15 +632,33 @@ export default function BoletasPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Boletas</h1>
-          <p className="text-gray-500 text-sm">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-2xl font-bold">Boletas</h1>
+            {esEnCurso ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 border border-amber-300 px-3 py-0.5 text-xs font-semibold text-amber-800">
+                <Lock className="h-3.5 w-3.5 text-amber-700" />
+                Período en curso – envío masivo bloqueado
+              </span>
+            ) : esCerrado ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-0.5 text-xs font-medium text-emerald-700">
+                <BadgeCheck className="h-3.5 w-3.5 text-emerald-600" />
+                Período cerrado
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 border border-slate-300 px-3 py-0.5 text-xs font-medium text-slate-700">
+                <Lock className="h-3.5 w-3.5 text-slate-600" />
+                Período no cerrado – envío bloqueado
+              </span>
+            )}
+          </div>
+          <p className="text-gray-500 text-sm mt-0.5">
             {nombreMes(Number(mes))} {anio}
           </p>
         </div>
         <div className="flex flex-wrap gap-2 ml-auto">
           <select
             value={anio}
-            onChange={(e) => setAnio(e.target.value)}
+            onChange={(e) => cambiarAnio(e.target.value)}
             className="rounded-lg border border-gray-300 px-3 py-2"
           >
             {[2024, 2025, 2026, 2027, 2028].map((a) => (
@@ -590,14 +669,24 @@ export default function BoletasPage() {
           </select>
           <select
             value={mes}
-            onChange={(e) => setMes(e.target.value)}
+            onChange={(e) => cambiarMes(e.target.value)}
             className="rounded-lg border border-gray-300 px-3 py-2"
           >
-            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-              <option key={m} value={String(m).padStart(2, "0")}>
-                {nombreMes(m)}
-              </option>
-            ))}
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => {
+              const val = String(m).padStart(2, "0");
+              const mCerrado = esPeriodoCerrado(anio, val);
+              const mEnCurso = esPeriodoEnCurso(anio, val);
+              const etiqueta = mEnCurso
+                ? `${nombreMes(m)} (En curso)`
+                : mCerrado
+                  ? `${nombreMes(m)}`
+                  : `${nombreMes(m)} (Futuro)`;
+              return (
+                <option key={m} value={val}>
+                  {etiqueta}
+                </option>
+              );
+            })}
           </select>
           <button
             onClick={generar}
@@ -609,6 +698,23 @@ export default function BoletasPage() {
           </button>
         </div>
       </div>
+
+      {/* ====== Banner Informativo Período en Curso ====== */}
+      {envioMasivoBloqueado && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 shadow-sm flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <p className="font-semibold text-amber-900">
+              {esEnCurso
+                ? "Período en curso – envío masivo bloqueado"
+                : "Período no cerrado – envío masivo bloqueado"}
+            </p>
+            <p className="mt-0.5 text-amber-800">
+              Las boletas de este período están disponibles únicamente para consulta y visualización. El envío masivo de correos permanecerá bloqueado hasta que finalice el mes para prevenir envíos prematuros o accidentales.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ====== KPIs ====== */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -684,10 +790,19 @@ export default function BoletasPage() {
         {seleccionadas.size > 0 && (
           <button
             onClick={enviarSeleccionadas}
-            disabled={enviando}
-            className="ml-auto inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-1.5 text-sm text-gray-700 font-medium hover:bg-gray-50 disabled:opacity-50"
+            disabled={enviando || envioMasivoBloqueado}
+            title={
+              envioMasivoBloqueado
+                ? "El envío masivo está bloqueado para el período en curso hasta fin de mes"
+                : `Enviar ${seleccionadas.size} boletas`
+            }
+            className="ml-auto inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-1.5 text-sm text-gray-700 font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Send className="h-4 w-4" />
+            {envioMasivoBloqueado ? (
+              <Lock className="h-4 w-4 text-amber-600" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
             Enviar ({seleccionadas.size})
           </button>
         )}
@@ -724,17 +839,27 @@ export default function BoletasPage() {
 
       {/* ====== Tarjetas (móvil) ====== */}
       <div className="space-y-3 md:hidden">
-        <label className="flex items-center gap-2 px-1 text-sm font-medium text-gray-700">
+        <label
+          className={`flex items-center gap-2 px-1 text-sm font-medium ${
+            envioMasivoBloqueado
+              ? "text-gray-400 cursor-not-allowed"
+              : "text-gray-700"
+          }`}
+        >
           <input
             type="checkbox"
             checked={
+              !envioMasivoBloqueado &&
               pendientesVisibles.length > 0 &&
               pendientesVisibles.every((b) => seleccionadas.has(b.id))
             }
+            disabled={envioMasivoBloqueado || pendientesVisibles.length === 0}
             onChange={(e) => toggleTodos(e.target.checked)}
-            className="h-4 w-4"
+            className="h-4 w-4 disabled:opacity-40 disabled:cursor-not-allowed"
           />
-          Seleccionar pendientes
+          {envioMasivoBloqueado
+            ? "Selección bloqueada (período en curso)"
+            : "Seleccionar pendientes"}
         </label>
         {paginados.map((b) => (
           <div
@@ -771,9 +896,15 @@ export default function BoletasPage() {
                 <input
                   type="checkbox"
                   checked={seleccionadas.has(b.id)}
+                  disabled={envioMasivoBloqueado}
                   onChange={() => toggleSeleccion(b.id)}
-                  className="h-4 w-4"
+                  className="h-4 w-4 disabled:opacity-40 disabled:cursor-not-allowed"
                   aria-label="Seleccionar boleta"
+                  title={
+                    envioMasivoBloqueado
+                      ? "Envío masivo bloqueado para el período en curso"
+                      : "Seleccionar boleta"
+                  }
                 />
                 {b.emailEnviado ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
@@ -825,8 +956,19 @@ export default function BoletasPage() {
                 {b.estado !== "FIRMADA" && (
                   <button
                     onClick={() => enviarCorreo(b)}
-                    title={b.emailEnviado ? "Reenviar correo" : "Enviar correo"}
-                    className={accionIcono}
+                    disabled={envioMasivoBloqueado}
+                    title={
+                      envioMasivoBloqueado
+                        ? "Envío deshabilitado en período en curso"
+                        : b.emailEnviado
+                          ? "Reenviar correo"
+                          : "Enviar correo"
+                    }
+                    className={`${accionIcono} ${
+                      envioMasivoBloqueado
+                        ? "opacity-40 cursor-not-allowed hover:bg-gray-100"
+                        : ""
+                    }`}
                   >
                     <Send className="h-4 w-4" />
                   </button>
@@ -875,11 +1017,18 @@ export default function BoletasPage() {
                   <input
                     type="checkbox"
                     checked={
+                      !envioMasivoBloqueado &&
                       pendientesVisibles.length > 0 &&
                       pendientesVisibles.every((b) => seleccionadas.has(b.id))
                     }
+                    disabled={envioMasivoBloqueado || pendientesVisibles.length === 0}
                     onChange={(e) => toggleTodos(e.target.checked)}
-                    className="h-4 w-4"
+                    title={
+                      envioMasivoBloqueado
+                        ? "Envío masivo bloqueado para el período en curso"
+                        : "Seleccionar todos los pendientes"
+                    }
+                    className="h-4 w-4 disabled:opacity-40 disabled:cursor-not-allowed"
                   />
                 </th>
                 <th className="text-left px-4 py-2">DNI</th>
@@ -897,8 +1046,14 @@ export default function BoletasPage() {
                     <input
                       type="checkbox"
                       checked={seleccionadas.has(b.id)}
+                      disabled={envioMasivoBloqueado}
                       onChange={() => toggleSeleccion(b.id)}
-                      className="h-4 w-4"
+                      title={
+                        envioMasivoBloqueado
+                          ? "Envío masivo bloqueado para el período en curso"
+                          : "Seleccionar boleta"
+                      }
+                      className="h-4 w-4 disabled:opacity-40 disabled:cursor-not-allowed"
                     />
                   </td>
                   <td className="px-4 py-2">{b.trabajador.dni}</td>
@@ -971,12 +1126,19 @@ export default function BoletasPage() {
                       {b.estado !== "FIRMADA" && (
                         <button
                           onClick={() => enviarCorreo(b)}
+                          disabled={envioMasivoBloqueado}
                           title={
-                            b.emailEnviado
-                              ? "Reenviar correo"
-                              : "Enviar correo"
+                            envioMasivoBloqueado
+                              ? "Envío deshabilitado en período en curso"
+                              : b.emailEnviado
+                                ? "Reenviar correo"
+                                : "Enviar correo"
                           }
-                          className={accionIcono}
+                          className={`${accionIcono} ${
+                            envioMasivoBloqueado
+                              ? "opacity-40 cursor-not-allowed hover:bg-gray-100"
+                              : ""
+                          }`}
                         >
                           <Send className="h-4 w-4" />
                         </button>

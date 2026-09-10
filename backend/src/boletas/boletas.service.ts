@@ -4,7 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { MailService } from '../mail/mail.service';
 import { WorkersService } from '../workers/workers.service';
 import { PdfService } from '../pdf/pdf.service';
@@ -37,9 +37,19 @@ export interface PorAreaGrupo {
   boletas: PorAreaItem[];
 }
 
+export interface PeriodoInfo {
+  anio: number;
+  mes: number;
+  esCerrado: boolean;
+  esEnCurso: boolean;
+  esFuturo: boolean;
+  estadoTexto: string;
+}
+
 export interface PorAreaData {
   total: number;
   areas: PorAreaGrupo[];
+  periodoInfo?: PeriodoInfo;
 }
 
 @Injectable()
@@ -463,9 +473,31 @@ export class BoletasService implements OnModuleInit {
         sinCorreo: lista.filter((x) => !x.emailEnviado).length,
         boletas: lista,
       }))
-      .sort((a, b) => a.area.localeCompare(b.area));
+    const hoy = new Date();
+    const hoyAnio = hoy.getFullYear();
+    const hoyMes = hoy.getMonth() + 1;
+    const qAnio = Number(query.anio) || hoyAnio;
+    const qMes = Number(query.mes) || hoyMes;
 
-    const resultado = { total: items.length, areas };
+    const esCerrado = qAnio < hoyAnio || (qAnio === hoyAnio && qMes < hoyMes);
+    const esEnCurso = qAnio === hoyAnio && qMes === hoyMes;
+    const esFuturo = qAnio > hoyAnio || (qAnio === hoyAnio && qMes > hoyMes);
+    const estadoTexto = esCerrado
+      ? 'Período cerrado'
+      : esEnCurso
+        ? 'Período en curso – envío masivo bloqueado'
+        : 'Período futuro – envío masivo bloqueado';
+
+    const periodoInfo: PeriodoInfo = {
+      anio: qAnio,
+      mes: qMes,
+      esCerrado,
+      esEnCurso,
+      esFuturo,
+      estadoTexto,
+    };
+
+    const resultado: PorAreaData = { total: items.length, areas, periodoInfo };
 
     this.cachéPorArea.set(clave, {
       data: resultado,
@@ -613,7 +645,39 @@ export class BoletasService implements OnModuleInit {
     ids: number[],
     actor?: ActorAuditoria,
   ) {
+    if (!ids || ids.length === 0) {
+      throw new BadRequestException('No se seleccionaron boletas para enviar');
+    }
+
+    const boletasAEnviar = await this.repo.find({
+      where: { id: In(ids) },
+      relations: { trabajador: true },
+    });
+
+    if (boletasAEnviar.length === 0) {
+      throw new NotFoundException('No se encontraron las boletas solicitadas');
+    }
+
+    // Regla de negocio: El período actual permanece bloqueado para el envío masivo hasta que finalice el mes.
+    const hoy = new Date();
+    const hoyAnio = hoy.getFullYear();
+    const hoyMes = hoy.getMonth() + 1;
+
+    for (const b of boletasAEnviar) {
+      const esPeriodoCerrado =
+        b.anio < hoyAnio || (b.anio === hoyAnio && b.mes < hoyMes);
+
+      if (!esPeriodoCerrado) {
+        const esEnCurso = b.anio === hoyAnio && b.mes === hoyMes;
+        const msg = esEnCurso
+          ? `El período actual (${b.periodo}) está en curso. El envío masivo está bloqueado hasta que finalice el mes.`
+          : `El período (${b.periodo}) no está cerrado. El envío masivo está bloqueado.`;
+        throw new BadRequestException(msg);
+      }
+    }
+
     this.cachéPorArea.clear();
+    await this.mail.sincronizarDesdeBd();
     const delayMs = Math.max(
       0,
       Number(this.config.get<string>('SMTP_DELAY_MS', '1500')),
@@ -626,16 +690,14 @@ export class BoletasService implements OnModuleInit {
     let topeAlcanzado = false;
     const sinEmailDetalle: { nombre: string; area: string }[] = [];
     const erroresDetalle: { nombre: string; periodo: string; motivo: string }[] = [];
+    const boletaMap = new Map(boletasAEnviar.map((b) => [b.id, b]));
 
     for (const id of ids) {
       if (this.mail.restantesHoy() <= 0) {
         topeAlcanzado = true;
         break;
       }
-      const boleta = await this.repo.findOne({
-        where: { id },
-        relations: { trabajador: true },
-      });
+      const boleta = boletaMap.get(id);
       if (!boleta) {
         errores++;
         continue;
@@ -687,7 +749,7 @@ export class BoletasService implements OnModuleInit {
     }
 
     const duracionSeg = Math.round((Date.now() - inicio) / 1000);
-    const estadoCorreo = this.mail.estadoCorreo();
+    const estadoCorreo = await this.mail.estadoCorreo();
 
     await this.auditar(
       'envio_masivo',

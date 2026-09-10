@@ -138,9 +138,19 @@ export interface AreaBoletas {
   boletas: Boleta[];
 }
 
+export interface PeriodoInfo {
+  anio: number;
+  mes: number;
+  esCerrado: boolean;
+  esEnCurso: boolean;
+  esFuturo: boolean;
+  estadoTexto: string;
+}
+
 export interface PorAreaResultado {
   total: number;
   areas: AreaBoletas[];
+  periodoInfo?: PeriodoInfo;
 }
 
 export interface SincronizarTrabajadoresResultado {
