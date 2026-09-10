@@ -1,11 +1,17 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
   app.setGlobalPrefix('api');
+
+  // Permitir bodies JSON grandes (ej. firma en base64 o imagen del representante).
+  // Por defecto el límite es 100KB y la firma puede superarlo (PayloadTooLargeError).
+  app.use(json({ limit: '10mb' }));
+  app.use(urlencoded({ extended: true, limit: '10mb' }));
 
   const corsOrigin = process.env.CORS_ORIGIN;
   const origin = corsOrigin
