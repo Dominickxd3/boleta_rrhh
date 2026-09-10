@@ -101,28 +101,37 @@ export class MailService implements OnModuleInit {
   async sincronizarDesdeBd(): Promise<number> {
     if (!this.dataSource?.isInitialized) return this.usadosHoy;
     try {
-      // 1. Contar envíos registrados en dbo.mail_envios para hoy
-      const resMail = await this.dataSource.query(`
-        SELECT COUNT(*) as c 
-        FROM dbo.mail_envios 
-        WHERE fecha >= CAST(CAST(GETDATE() AS DATE) AS DATETIME2)
-      `);
-      const enviosRegistrados = Number(resMail?.[0]?.c || 0);
-
-      // 2. Contar envíos desde boletas (iniciales + firmadas) para hoy
+      // Fuente principal de verdad: boletas con correo enviado hoy.
+      // dbo.boletas.fecha_email registra cada envío individual y masivo.
       const resBoletas = await this.dataSource.query(`
-        SELECT 
-          (SELECT COUNT(*) FROM dbo.boletas WHERE fecha_email >= CAST(CAST(GETDATE() AS DATE) AS DATETIME2))
-          +
-          (SELECT COUNT(*) FROM dbo.boletas WHERE fecha_firmado >= CAST(CAST(GETDATE() AS DATE) AS DATETIME2))
-        AS totalBoletas
+        SELECT COUNT(*) AS totalBoletas
+        FROM dbo.boletas
+        WHERE fecha_email >= CAST(CAST(GETDATE() AS DATE) AS DATETIME2)
       `);
       const enviosBoletas = Number(resBoletas?.[0]?.totalBoletas || 0);
 
-      // Tomamos el mayor para garantizar que no se pierdan los envíos previos
-      const totalReal = Math.max(enviosRegistrados, enviosBoletas);
+      // Fuente secundaria: mail_envios (incluye boleta_firmada y otros tipos).
+      // Puede estar vacía si fue creada después de enviar correos, por eso es secundaria.
+      let enviosRegistrados = 0;
+      try {
+        const resMail = await this.dataSource.query(`
+          SELECT COUNT(*) as c
+          FROM dbo.mail_envios
+          WHERE fecha >= CAST(CAST(GETDATE() AS DATE) AS DATETIME2)
+        `);
+        enviosRegistrados = Number(resMail?.[0]?.c || 0);
+      } catch {
+        // Tabla mail_envios puede no existir en instalaciones antiguas
+      }
+
+      // El total real es el mayor entre ambas fuentes.
+      // No usamos Math.max(this.usadosHoy, totalReal) en el reinicio porque
+      // this.usadosHoy arrancará en 0 y queremos que la BD mande.
+      const totalReal = Math.max(enviosBoletas, enviosRegistrados);
 
       this.diaContador = this.hoy();
+      // Si el contador en memoria ya es mayor (por envios durante esta sesion),
+      // lo respetamos. Si no, tomamos el valor de la BD (caso de reinicio).
       this.usadosHoy = Math.max(this.usadosHoy, totalReal);
       return this.usadosHoy;
     } catch (err) {

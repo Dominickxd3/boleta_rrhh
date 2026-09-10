@@ -417,15 +417,8 @@ export default function BoletasPage() {
   };
 
   const enviarCorreo = async (b: Boleta) => {
-    if (envioMasivoBloqueado) {
-      await Swal.fire({
-        icon: "warning",
-        title: "Período en curso",
-        text: "El envío de correos está bloqueado para el período actual hasta que finalice el mes.",
-        confirmButtonColor: "#2563eb",
-      });
-      return;
-    }
+    // Nota: el envío individual siempre está permitido.
+    // Solo el envío masivo se bloquea mientras el período está en curso.
     const email = b.trabajador.email?.trim();
     if (!email) {
       await Swal.fire({
@@ -956,19 +949,8 @@ export default function BoletasPage() {
                 {b.estado !== "FIRMADA" && (
                   <button
                     onClick={() => enviarCorreo(b)}
-                    disabled={envioMasivoBloqueado}
-                    title={
-                      envioMasivoBloqueado
-                        ? "Envío deshabilitado en período en curso"
-                        : b.emailEnviado
-                          ? "Reenviar correo"
-                          : "Enviar correo"
-                    }
-                    className={`${accionIcono} ${
-                      envioMasivoBloqueado
-                        ? "opacity-40 cursor-not-allowed hover:bg-gray-100"
-                        : ""
-                    }`}
+                    title={b.emailEnviado ? "Reenviar correo" : "Enviar correo"}
+                    className={accionIcono}
                   >
                     <Send className="h-4 w-4" />
                   </button>
@@ -1126,19 +1108,8 @@ export default function BoletasPage() {
                       {b.estado !== "FIRMADA" && (
                         <button
                           onClick={() => enviarCorreo(b)}
-                          disabled={envioMasivoBloqueado}
-                          title={
-                            envioMasivoBloqueado
-                              ? "Envío deshabilitado en período en curso"
-                              : b.emailEnviado
-                                ? "Reenviar correo"
-                                : "Enviar correo"
-                          }
-                          className={`${accionIcono} ${
-                            envioMasivoBloqueado
-                              ? "opacity-40 cursor-not-allowed hover:bg-gray-100"
-                              : ""
-                          }`}
+                          title={b.emailEnviado ? "Reenviar correo" : "Enviar correo"}
+                          className={accionIcono}
                         >
                           <Send className="h-4 w-4" />
                         </button>

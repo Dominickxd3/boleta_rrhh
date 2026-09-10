@@ -259,7 +259,15 @@ export class NominaService {
       return '';
     }
     const horas = this.num(f.Horas);
-    if (horas > 0) return `${horas} HORAS`;
+    if (horas > 0) {
+      // JORNADA DIURNA y JORNADA NOCTURNA: el campo Horas contiene días (no horas).
+      // Se muestra como "X DIAS" (entero, sin decimales).
+      if (/JORNADA\s+(DIURNA|NOCTURNA)/i.test(concepto)) {
+        return `${Math.floor(horas)} DIAS`;
+      }
+      // Resto de conceptos con horas: mostrar como entero sin decimales.
+      return `${Math.floor(horas)} HORAS`;
+    }
     return '';
   }
 
