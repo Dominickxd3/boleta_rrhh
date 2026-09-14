@@ -400,6 +400,7 @@ export class BoletasService implements OnModuleInit {
       .addSelect('b.emailEnviado', 'emailEnviado')
       .addSelect('b.tokenFirma', 'tokenFirma')
       .addSelect('b.tokenVer', 'tokenVer')
+      .addSelect('b.firmaExpira', 'firmaExpira')
       .addSelect('t.id', 'trabajadorId')
       .addSelect('t.dni', 'dni')
       .addSelect('t.nombres', 'nombres')
@@ -426,6 +427,7 @@ export class BoletasService implements OnModuleInit {
       emailEnviado: boolean;
       tokenFirma: string | null;
       tokenVer: string | null;
+      firmaExpira: Date | null;
       trabajadorId: number;
       dni: string;
       nombres: string;
@@ -445,6 +447,7 @@ export class BoletasService implements OnModuleInit {
       emailEnviado: !!r.emailEnviado,
       tokenFirma: r.tokenFirma,
       tokenVer: r.tokenVer,
+      firmaExpira: r.firmaExpira,
       trabajador: {
         id: r.trabajadorId,
         dni: r.dni,

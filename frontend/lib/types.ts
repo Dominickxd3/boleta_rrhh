@@ -120,6 +120,7 @@ export interface Boleta {
   urlVer: string | null;
   emailEnviado: boolean;
   fechaEmail: string | null;
+  firmaExpira: string | null;
   detalle?: Detalle;
 }
 

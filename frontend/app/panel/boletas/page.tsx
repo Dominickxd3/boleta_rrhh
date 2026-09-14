@@ -177,6 +177,28 @@ const resumenEnvioHtml = (res: EnviarMasivoResultado): string => {
   return html;
 };
 
+// Clasifica la boleta para etiqueta/detalle de estado
+function estadoBoleta(b: Boleta): {
+  etiqueta: string;
+  style: string;
+  vencido: boolean;
+} {
+  if (b.estado === "FIRMADA") {
+    return { etiqueta: "Firmada", style: "bg-green-100 text-green-700", vencido: false };
+  }
+  if (!b.emailEnviado) {
+    return { etiqueta: "Pendiente", style: "bg-amber-100 text-amber-700", vencido: false };
+  }
+  if (b.firmaExpira && new Date(b.firmaExpira).getTime() < Date.now()) {
+    return {
+      etiqueta: "Enviado sin firmar · Enlace vencido",
+      style: "bg-red-100 text-red-700",
+      vencido: true,
+    };
+  }
+  return { etiqueta: "Enviado sin firmar", style: "bg-blue-100 text-blue-700", vencido: false };
+}
+
 export default function BoletasPage() {
   const [periodoSeleccion] = useState(() => getPeriodoPersistido());
   const [anio, setAnio] = useState(periodoSeleccion.anio);
@@ -873,19 +895,14 @@ export default function BoletasPage() {
                   </p>
                 )}
               </div>
-              {b.estado === "FIRMADA" ? (
-                <span className="inline-flex shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                  Firmada
-                </span>
-              ) : b.emailEnviado ? (
-                <span className="inline-flex shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
-                  Enviado sin firmar
-                </span>
-              ) : (
-                <span className="inline-flex shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
-                  Pendiente
-                </span>
-              )}
+              {(() => {
+                  const st = estadoBoleta(b);
+                  return (
+                    <span className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${st.style}`}>
+                      {st.etiqueta}
+                    </span>
+                  );
+                })()}
             </div>
 
             <div className="mt-2 flex items-center justify-between gap-2">
@@ -1050,19 +1067,14 @@ export default function BoletasPage() {
                     {b.trabajador.area || "—"}
                   </td>
                   <td className="px-4 py-2">
-                    {b.estado === "FIRMADA" ? (
-                      <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                        Firmada
+                    {(() => {
+                    const st = estadoBoleta(b);
+                    return (
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${st.style}`}>
+                        {st.etiqueta}
                       </span>
-                    ) : b.emailEnviado ? (
-                      <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
-                        Enviado sin firmar
-                      </span>
-                    ) : (
-                      <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
-                        Pendiente
-                      </span>
-                    )}
+                    );
+                  })()}
                   </td>
                   <td className="px-4 py-2">
                     {b.emailEnviado ? (
