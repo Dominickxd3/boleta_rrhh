@@ -191,7 +191,7 @@ function estadoBoleta(b: Boleta): {
   }
   if (b.firmaExpira && new Date(b.firmaExpira).getTime() < Date.now()) {
     return {
-      etiqueta: "Enviado sin firmar · Enlace vencido",
+      etiqueta: "Enlace vencido",
       style: "bg-red-100 text-red-700",
       vencido: true,
     };
