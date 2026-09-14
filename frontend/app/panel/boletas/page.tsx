@@ -331,7 +331,7 @@ export default function BoletasPage() {
   );
 
   const pendientesVisibles = useMemo(
-    () => visibles.filter((b) => !b.emailEnviado),
+    () => visibles.filter((b) => b.estado !== "FIRMADA"),
     [visibles],
   );
 
@@ -505,7 +505,7 @@ export default function BoletasPage() {
     setSeleccionadas((prev) => {
       const next = new Set(prev);
       for (const b of visibles) {
-        if (b.emailEnviado) continue;
+        if (b.estado === "FIRMADA") continue;
         if (marcar) {
           next.add(b.id);
         } else {
@@ -530,7 +530,7 @@ export default function BoletasPage() {
     const conf = await Swal.fire({
       icon: "question",
       title: "Enviar correos",
-      text: `¿Enviar el link de firma a los ${ids.length} trabajadores seleccionados?`,
+      text: `¿Enviar o reenviar el link de firma a los ${ids.length} trabajadores seleccionados?`,
       showCancelButton: true,
       confirmButtonText: "Enviar",
       cancelButtonText: "Cancelar",
@@ -852,7 +852,7 @@ export default function BoletasPage() {
           />
           {envioMasivoBloqueado
             ? "Selección bloqueada (período en curso)"
-            : "Seleccionar pendientes"}
+            : "Seleccionar sin firmar"}
         </label>
         {paginados.map((b) => (
           <div
@@ -876,6 +876,10 @@ export default function BoletasPage() {
               {b.estado === "FIRMADA" ? (
                 <span className="inline-flex shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
                   Firmada
+                </span>
+              ) : b.emailEnviado ? (
+                <span className="inline-flex shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                  Enviado sin firmar
                 </span>
               ) : (
                 <span className="inline-flex shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
@@ -1049,6 +1053,10 @@ export default function BoletasPage() {
                     {b.estado === "FIRMADA" ? (
                       <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
                         Firmada
+                      </span>
+                    ) : b.emailEnviado ? (
+                      <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                        Enviado sin firmar
                       </span>
                     ) : (
                       <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
