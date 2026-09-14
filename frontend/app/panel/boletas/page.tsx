@@ -1066,7 +1066,7 @@ export default function BoletasPage() {
                   <td className="hidden md:table-cell px-4 py-2 text-gray-500">
                     {b.trabajador.area || "—"}
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="px-4 py-2 text-center">
                     {(() => {
                     const st = estadoBoleta(b);
                     return (
