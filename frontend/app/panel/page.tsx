@@ -197,7 +197,10 @@ export default function Dashboard() {
   const top5 = useMemo(
     () =>
       porArea.areas
-        .map((a) => ({ name: acortar(nombreAreaLimpio(a.area)), value: a.total }))
+        .map((a) => ({
+          name: acortar(nombreAreaLimpio(a.area)),
+          value: Math.max(0, a.total - a.sinCorreo), // boletas con correo enviado
+        }))
         .sort((a, b) => b.value - a.value)
         .slice(0, 5),
     [porArea],
