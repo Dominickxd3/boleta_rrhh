@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BadgeCheck,
   CheckCheck,
-  Clock,
   FilePlus,
   FileText,
   Mail,
@@ -261,8 +260,8 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* KPIs: Total, Firmadas, Pendientes */}
-      <div className={`grid grid-cols-1 gap-4 md:grid-cols-3 ${cargando ? "opacity-60" : ""}`}>
+      {/* KPIs: Total enviadas, Firmadas */}
+      <div className={`grid grid-cols-1 gap-4 md:grid-cols-2 ${cargando ? "opacity-60" : ""}`}>
         <div className="rounded-xl border border-gray-200 bg-white p-5 flex items-center gap-4">
           <div className="rounded-lg bg-gray-100 p-3 shrink-0">
             <FileText className="h-6 w-6 text-gray-800" />
@@ -283,17 +282,6 @@ export default function Dashboard() {
               Firmadas
             </p>
             <p className="text-3xl font-bold text-black">{resumen.firmadas}</p>
-          </div>
-        </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-5 flex items-center gap-4">
-          <div className="rounded-lg bg-gray-100 p-3 shrink-0">
-            <Clock className="h-6 w-6 text-gray-800" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-              Pendientes de firma
-            </p>
-            <p className="text-3xl font-bold text-black">{resumen.pendientes}</p>
           </div>
         </div>
       </div>
