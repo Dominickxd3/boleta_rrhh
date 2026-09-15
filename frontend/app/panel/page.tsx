@@ -12,18 +12,12 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
+  Line,
+  LineChart,
   ResponsiveContainer,
-  Sector,
   Tooltip,
-  useActiveTooltipDataPoints,
-  useIsTooltipActive,
   XAxis,
   YAxis,
-  type PieLabelRenderProps,
-  type PieSectorShapeProps,
 } from "recharts";
 import { apiFetch, getToken, API_URL } from "@/lib/api";
 import {
@@ -34,96 +28,86 @@ import {
 } from "@/lib/types";
 import { fechaLarga, nombreAreaLimpio, nombreMes } from "@/lib/format";
 
-const acortar = (a: string) => (a.length > 30 ? a.slice(0, 30) + "…" : a);
+const acortar = (a: string) => (a.length > 26 ? a.slice(0, 26) + "…" : a);
 
-const COLORS = [
-  "#2563eb",
-  "#16a34a",
-  "#d97706",
-  "#dc2626",
-  "#7c3aed",
-  "#0891b2",
-  "#db2777",
-  "#65a30d",
-  "#ea580c",
-  "#4f46e5",
-  "#0d9488",
-  "#b45309",
-];
+// Punto del gráfico més (key: YYYY-MM)
+interface PuntoGrafico {
+  key: string;
+  label: string; // "Ene", "Feb"
+  labelCompleto: string; // "Agosto 2026"
+  firmadas: number;
+}
 
-const RADIAN = Math.PI / 180;
-
-const renderCustomizedLabel = ({
-  cx,
-  cy,
-  midAngle,
-  innerRadius,
-  outerRadius,
-  percent,
-}: PieLabelRenderProps) => {
-  if (cx == null || cy == null || innerRadius == null || outerRadius == null) {
-    return null;
+const MES_DISPONIBLE = (anioSel: number, anioHoy: number, mesActual: number) => {
+  const total = anioSel === anioHoy ? mesActual + 1 : 12;
+  const arr: Array<{ value: string; label: string }> = [
+    { value: "todos", label: "Todos" },
+  ];
+  for (let m = 1; m <= total; m++) {
+    arr.push({ value: String(m).padStart(2, "0"), label: nombreMes(m) });
   }
-  const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-  const ncx = Number(cx);
-  const x = ncx + radius * Math.cos(-(midAngle ?? 0) * RADIAN);
-  const ncy = Number(cy);
-  const y = ncy + radius * Math.sin(-(midAngle ?? 0) * RADIAN);
-
-  return (
-    <text
-      x={x}
-      y={y}
-      fill="#fff"
-      textAnchor={x > ncx ? "start" : "end"}
-      dominantBaseline="central"
-      fontSize={12}
-      fontWeight={600}
-    >
-      {`${((percent ?? 1) * 100).toFixed(0)}%`}
-    </text>
-  );
-};
-
-const PieConFoco = (props: PieSectorShapeProps) => {
-  const p = useActiveTooltipDataPoints();
-  const isAnyPieActive = useIsTooltipActive();
-  const isThisPieActive = isAnyPieActive && props.payload === p?.[0];
-  const fillOpacity = isAnyPieActive && !isThisPieActive ? 0.5 : 1;
-  return (
-    <Sector
-      {...props}
-      fill={COLORS[props.index % COLORS.length]}
-      fillOpacity={fillOpacity}
-      style={{ transition: "fill-opacity 0.3s ease" }}
-    />
-  );
+  return arr;
 };
 
 export default function Dashboard() {
-  const ahora = new Date();
-  const [anio, setAnio] = useState(String(ahora.getFullYear()));
-  const [mes, setMes] = useState(String(ahora.getMonth() + 1).padStart(2, "0"));
-  const [resumen, setResumen] = useState<Resumen>({ total: 0, firmadas: 0, pendientes: 0 });
+  const hoy = useMemo(() => new Date(), []);
+  const mesActual = hoy.getMonth() + 1; // 1-12
+  const anioActual = hoy.getFullYear();
+
+  const aniosDisponibles = useMemo(() => {
+    const lista: number[] = [];
+    for (let y = anioActual - 3; y <= anioActual + 1; y++) lista.push(y);
+    return lista;
+  }, [anioActual]);
+
+  const [anio, setAnio] = useState(String(anioActual));
+  const [mes, setMes] = useState<string>("todos");
+
+  const [resumen, setResumen] = useState<Resumen>({
+    total: 0,
+    firmadas: 0,
+    pendientes: 0,
+  });
   const [porArea, setPorArea] = useState<PorAreaResultado>({ total: 0, areas: [] });
-  const [firmasMes, setFirmasMes] = useState<EnvioMes[]>([]);
+  const [firmasVentana, setFirmasVentana] = useState<PuntoGrafico[]>([]);
   const [actividad, setActividad] = useState<ActividadReciente[]>([]);
-  const [ocultas, setOcultas] = useState<string[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
+
+  const mesesDisponibles = useMemo(
+    () => MES_DISPONIBLE(Number(anio), anioActual, mesActual),
+    [anio, anioActual, mesActual],
+  );
+
+  // Ventana de 3 meses (puede cruzar años): [m-2, m-1, m] sobre el período seleccionado
+  const ventana = useMemo(() => {
+    const anioRef = mes === "todos" ? anioActual : Number(anio);
+    const mesRef = mes === "todos" ? mesActual : Number(mes);
+    const arr: Array<{ anio: number; mes: number }> = [];
+    let m = mesRef;
+    let a = anioRef;
+    for (let i = 0; i < 3; i++) {
+      arr.unshift({ anio: a, mes: m });
+      m--;
+      if (m < 1) {
+        m = 12;
+        a--;
+      }
+    }
+    return arr;
+  }, [anio, mes, anioActual, mesActual]);
 
   const refrescar = useCallback(async () => {
     setCargando(true);
     setError("");
+    const params = `anio=${anio}${mes === "todos" ? "" : `&mes=${mes}`}`;
     try {
-      const [res, areas, firmas] = await Promise.all([
-        apiFetch<Resumen>(`/boletas/resumen?anio=${anio}&mes=${mes}`),
-        apiFetch<PorAreaResultado>(`/boletas/por-area?anio=${anio}&mes=${mes}`),
-        apiFetch<EnvioMes[]>(`/boletas/firmas-por-mes?anio=${anio}`),
+      const [res, areas] = await Promise.all([
+        apiFetch<Resumen>(`/boletas/resumen?${params}`),
+        apiFetch<PorAreaResultado>(`/boletas/por-area?${params}`),
       ]);
       setResumen(res);
       setPorArea(areas);
-      setFirmasMes(firmas);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -140,59 +124,96 @@ export default function Dashboard() {
     }
   }, [anio, mes]);
 
+  // Para la ventana: podemos necesitar firmas del año anterior también.
+  const cargarGrafico = useCallback(async () => {
+    const datos: PuntoGrafico[] = ventana.map((p) => ({
+      key: `${p.anio}-${String(p.mes).padStart(2, "0")}`,
+      label: nombreMes(p.mes).slice(0, 3),
+      labelCompleto: `${nombreMes(p.mes)} ${p.anio}`,
+      firmadas: 0,
+    }));
+    const anios = new Set(ventana.map((p) => p.anio));
+    await Promise.all(
+      Array.from(anios).map(async (a) => {
+        let lista: EnvioMes[] = [];
+        try {
+          lista = await apiFetch<EnvioMes[]>(`/boletas/firmas-por-mes?anio=${a}`);
+        } catch {
+          lista = [];
+        }
+        for (const d of datos) {
+          if (d.key.startsWith(`${a}-`)) {
+            const hit = lista.find(
+              (r) => r.mes === d.key.slice(5),
+            );
+            if (hit) d.firmadas = hit.firmadas;
+          }
+        }
+      }),
+    );
+    setFirmasVentana(datos);
+  }, [ventana]);
+
+  useEffect(() => {
+    // Si el mes fijo no existe para el nuevo año (apagado), vuelve a "Todos".
+    const valido = mesesDisponibles.some((m) => m.value === mes);
+    if (!valido && mes !== "todos") setMes("todos");
+  }, [mesesDisponibles, mes]);
+
   useEffect(() => {
     refrescar();
-  }, [refrescar]);
+    cargarGrafico();
+  }, [refrescar, cargarGrafico]);
 
-  // Actualizar en tiempo real cuando se firma una boleta
   useEffect(() => {
     const token = getToken();
     if (!token) return;
     const es = new EventSource(
       `${API_URL}/realtime/boletas?token=${encodeURIComponent(token)}`,
     );
-    const onFirmada = () => refrescar();
+    const onFirmada = () => {
+      refrescar();
+      cargarGrafico();
+    };
     es.addEventListener("boleta.firmada", onFirmada);
     return () => {
       es.removeEventListener("boleta.firmada", onFirmada);
       es.close();
     };
-  }, [refrescar]);
+  }, [refrescar, cargarGrafico]);
 
-  // Actualizar al volver a la pestaña
   useEffect(() => {
     const onVis = () => {
-      if (document.visibilityState === "visible") refrescar();
+      if (document.visibilityState === "visible") {
+        refrescar();
+        cargarGrafico();
+      }
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, [refrescar]);
+  }, [refrescar, cargarGrafico]);
 
-  const firmasArea = useMemo(
-    () =>
-      porArea.areas
-        .map((a) => ({ name: acortar(nombreAreaLimpio(a.area)), value: a.firmadas }))
-        .filter((a) => a.value > 0)
-        .sort((a, b) => b.value - a.value),
+  const totalEnviadas = useMemo(
+    () => porArea.total - porArea.areas.reduce((a, b) => a + b.sinCorreo, 0),
     [porArea],
   );
 
-  const toggleArea = useCallback((name: string) => {
-    setOcultas((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
-    );
-  }, []);
-
-  const pieData = useMemo(
-    () => firmasArea.filter((a) => !ocultas.includes(a.name)),
-    [firmasArea, ocultas],
+  const top5 = useMemo(
+    () =>
+      porArea.areas
+        .map((a) => ({
+          name: acortar(nombreAreaLimpio(a.area)),
+          value: Math.max(0, a.total - a.sinCorreo), // boletas con correo enviado
+        }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 5),
+    [porArea],
   );
 
-  const colorPorArea = useMemo(() => {
-    const m = new Map<string, string>();
-    pieData.forEach((d, i) => m.set(d.name, COLORS[i % COLORS.length]));
-    return m;
-  }, [pieData]);
+  const descripcion =
+    mes === "todos"
+      ? `Vista anual — ${anio}`
+      : `Detalle del período — ${nombreMes(Number(mes))} ${anio}`;
 
   const iconosActividad = {
     generacion: { Icon: FilePlus, clase: "bg-slate-100 text-slate-600" },
@@ -205,9 +226,7 @@ export default function Dashboard() {
       <div className="flex flex-wrap items-end gap-4">
         <div>
           <h1 className="text-2xl font-bold">Inicio</h1>
-          <p className="text-gray-500 text-sm">
-            Resumen de boletas — {nombreMes(Number(mes))} {anio}
-          </p>
+          <p className="text-gray-500 text-sm">{descripcion}</p>
         </div>
         <div className="flex gap-2 ml-auto">
           <select
@@ -215,8 +234,8 @@ export default function Dashboard() {
             onChange={(e) => setAnio(e.target.value)}
             className="rounded-lg border border-gray-300 px-3 py-2"
           >
-            {[2024, 2025, 2026, 2027, 2028].map((a) => (
-              <option key={a} value={a}>
+            {aniosDisponibles.map((a) => (
+              <option key={a} value={String(a)}>
                 {a}
               </option>
             ))}
@@ -226,9 +245,9 @@ export default function Dashboard() {
             onChange={(e) => setMes(e.target.value)}
             className="rounded-lg border border-gray-300 px-3 py-2"
           >
-            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-              <option key={m} value={String(m).padStart(2, "0")}>
-                {nombreMes(m)}
+            {mesesDisponibles.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
               </option>
             ))}
           </select>
@@ -241,21 +260,20 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* KPIs principales */}
-      <div className={`grid grid-cols-1 lg:grid-cols-2 gap-4 ${cargando ? "opacity-60" : ""}`}>
-        <div className="rounded-xl border border-gray-200 bg-white shadow p-5 flex items-center gap-4">
+      {/* KPIs: Total enviadas, Firmadas */}
+      <div className={`grid grid-cols-1 gap-4 md:grid-cols-2 ${cargando ? "opacity-60" : ""}`}>
+        <div className="rounded-xl border border-gray-200 bg-white p-5 flex items-center gap-4">
           <div className="rounded-lg bg-gray-100 p-3 shrink-0">
             <FileText className="h-6 w-6 text-gray-800" />
           </div>
           <div className="min-w-0">
             <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-              Total boletas
+              Total boletas enviadas
             </p>
-            <p className="text-3xl font-bold text-black">{resumen.total}</p>
+            <p className="text-3xl font-bold text-black">{totalEnviadas}</p>
           </div>
         </div>
-
-        <div className="rounded-xl border border-gray-200 bg-white shadow p-5 flex items-center gap-4">
+        <div className="rounded-xl border border-gray-200 bg-white p-5 flex items-center gap-4">
           <div className="rounded-lg bg-gray-100 p-3 shrink-0">
             <BadgeCheck className="h-6 w-6 text-gray-800" />
           </div>
@@ -269,108 +287,101 @@ export default function Dashboard() {
       </div>
 
       {/* Gráficos */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Línea: ultimos 3 meses */}
         <div className="bg-white rounded-xl shadow p-5">
           <h2 className="font-semibold">Firmas por mes</h2>
-          <div className="h-64">
+          <p className="text-xs text-gray-400 mb-2">Últimos 3 meses</p>
+          <div className="h-64 lg:h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={firmasMes}
-                margin={{ top: 4, right: 8, left: 8, bottom: 0 }}
-                onClick={(data) => {
-                  const idx = data.activeIndex as number | undefined;
-                  const target = idx != null ? firmasMes[idx] : undefined;
-                  if (target?.mes) setMes(target.mes);
-                }}
+              <LineChart
+                data={firmasVentana}
+                margin={{ top: 10, right: 12, left: 0, bottom: 0 }}
               >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} width={28} />
                 <Tooltip
-                  formatter={(v) => [`${v} firmas`, ""]}
-                  cursor={{ fill: "rgba(37, 99, 235, 0.08)" }}
+                  content={(props) => {
+                    const { active, payload } = props as unknown as {
+                      active?: boolean;
+                      payload?: Array<{ payload: PuntoGrafico }>;
+                    };
+                    if (!active || !payload?.length) return null;
+                    const p = payload[0].payload;
+                    return (
+                      <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow">
+                        <p className="text-xs text-gray-500">{p.labelCompleto}</p>
+                        <p className="text-sm font-semibold">{p.firmadas} firmas</p>
+                      </div>
+                    );
+                  }}
                 />
-                <Bar
+                <Line
+                  type="monotone"
                   dataKey="firmadas"
-                  name="Firmas"
-                  fill="#2563eb"
-                  radius={[4, 4, 0, 0]}
-                  activeBar={{ fill: "#1e40af" }}
-                  cursor="pointer"
+                  stroke="#2563eb"
+                  strokeWidth={2}
+                  activeDot={{ r: 6, fill: "#1e40af" }}
+                  isAnimationActive={false}
                 />
-              </BarChart>
+              </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
 
+        {/* Top 5 áreas */}
         <div className="bg-white rounded-xl shadow p-5">
-          <h2 className="font-semibold">Firmas por área</h2>
-          {firmasArea.length > 0 ? (
-            <>
-              <div className="h-60">
-                {pieData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={pieData}
-                        dataKey="value"
-                        nameKey="name"
-                        outerRadius={85}
-                        labelLine={false}
-                        label={renderCustomizedLabel}
-                        shape={PieConFoco}
-                        onClick={(data) => {
-                          const target = data.payload as
-                            | { name?: string }
-                            | undefined;
-                          if (target?.name) toggleArea(target.name);
-                        }}
-                      >
-                        {pieData.map((d, i) => (
-                          <Cell key={d.name} fill={COLORS[i % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(v) => [`${v} firmas`, ""]} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="flex h-full items-center justify-center text-sm text-gray-400">
-                    Todas las áreas ocultas — clic en la leyenda para mostrarlas
-                  </div>
-                )}
-              </div>
-              <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
-                {firmasArea.map((a) => {
-                  const oculta = ocultas.includes(a.name);
-                  const color = oculta ? "#d1d5db" : colorPorArea.get(a.name);
-                  return (
-                    <li key={a.name}>
-                      <button
-                        type="button"
-                        onClick={() => toggleArea(a.name)}
-                        className={`flex items-center gap-1.5 text-xs transition-opacity ${
-                          oculta
-                            ? "text-gray-300"
-                            : "text-gray-600 hover:text-gray-900"
-                        }`}
-                      >
-                        <span
-                          className="inline-block h-2.5 w-2.5 rounded-sm"
-                          style={{ backgroundColor: color }}
-                        />
-                        <span className={oculta ? "line-through" : ""}>
-                          {a.name}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </>
+          <h2 className="font-semibold">Top 5 áreas con más boletas</h2>
+          <p className="text-xs text-gray-400 mb-2">
+            Áreas con mayor cantidad de boletas en el período seleccionado
+          </p>
+          {top5.length > 0 ? (
+            <div className="h-64 lg:h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={top5}
+                  layout="vertical"
+                  margin={{ top: 0, right: 40, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" hide />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    width={140}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <Tooltip
+                    content={(props) => {
+                      const { active, payload } = props as unknown as {
+                        active?: boolean;
+                        payload?: Array<{ payload: { name: string; value: number } }>;
+                      };
+                      if (!active || !payload?.length) return null;
+                      const a = payload[0].payload;
+                      return (
+                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow">
+                          <p className="text-xs text-gray-500">{a.name}</p>
+                          <p className="text-sm font-semibold">{a.value} boletas</p>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Bar
+                    dataKey="value"
+                    fill="#2563eb"
+                    radius={[0, 4, 4, 0]}
+                    barSize={18}
+                    label={{ position: "right", fontSize: 11, fill: "#374151" }}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           ) : (
-            <p className="text-sm text-gray-400 py-16 text-center">
-              Aún no hay firmas en este periodo
-            </p>
+            <div className="h-64 lg:h-72 flex items-center justify-center text-sm text-gray-400">
+              Aún no hay boletas en este período
+            </div>
           )}
         </div>
       </div>

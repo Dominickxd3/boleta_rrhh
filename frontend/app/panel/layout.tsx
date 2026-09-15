@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { Clock } from "lucide-react";
 import { clearToken, clearUsuario, getToken } from "@/lib/api";
 import { AppSidebar } from "@/components/app-sidebar";
 import {
@@ -11,6 +12,7 @@ import {
 } from "@/components/ui/sidebar";
 
 const INACTIVIDAD_MS = 5 * 60 * 1000;
+const AVISO_ANTES_MS = 60 * 1000;
 
 const TITULOS: Record<string, string> = {
   "/panel": "Inicio",
@@ -26,7 +28,9 @@ export default function PanelLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [inactividad, setInactividad] = useState(false);
+  const [avisoInactividad, setAvisoInactividad] = useState(false);
+  const [segundosRestantes, setSegundosRestantes] = useState(60);
+  const resetRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     const pagina = TITULOS[pathname] || "Panel";
@@ -51,19 +55,43 @@ export default function PanelLayout({
     }
   }, [router]);
 
-  // Cierre de sesión automático por inactividad (5 minutos)
+  // Sesión por inactividad (5 minutos): avisa 60s antes y permite continuar.
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    const cerrarSesion = () => {
+    if (!getToken()) return;
+
+    let avisoTimer: ReturnType<typeof setTimeout>;
+    let cierreTimer: ReturnType<typeof setTimeout>;
+    let contador: ReturnType<typeof setInterval>;
+
+    const forzarCierre = () => {
       clearToken();
       clearUsuario();
-      setInactividad(true);
-      setTimeout(() => router.replace("/login"), 2500);
+      setAvisoInactividad(false);
+      router.replace("/login");
     };
+
     const reset = () => {
-      clearTimeout(timer);
-      timer = setTimeout(cerrarSesion, INACTIVIDAD_MS);
+      clearTimeout(avisoTimer);
+      clearTimeout(cierreTimer);
+      clearInterval(contador);
+      setAvisoInactividad(false);
+      avisoTimer = setTimeout(() => {
+        setAvisoInactividad(true);
+        const fin = Date.now() + AVISO_ANTES_MS;
+        setSegundosRestantes(60);
+        contador = setInterval(() => {
+          const restante = Math.max(0, Math.ceil((fin - Date.now()) / 1000));
+          setSegundosRestantes(restante);
+          if (restante <= 0) {
+            clearInterval(contador);
+            forzarCierre();
+          }
+        }, 1000);
+        cierreTimer = setTimeout(forzarCierre, AVISO_ANTES_MS);
+      }, INACTIVIDAD_MS - AVISO_ANTES_MS);
     };
+
+    resetRef.current = reset;
     const eventos = [
       "pointerdown",
       "pointermove",
@@ -72,31 +100,16 @@ export default function PanelLayout({
       "scroll",
       "wheel",
     ];
-    eventos.forEach((ev) =>
-      window.addEventListener(ev, reset, { passive: true }),
-    );
+    eventos.forEach((ev) => window.addEventListener(ev, reset, { passive: true }));
     reset();
+
     return () => {
-      clearTimeout(timer);
+      clearTimeout(avisoTimer);
+      clearTimeout(cierreTimer);
+      clearInterval(contador);
       eventos.forEach((ev) => window.removeEventListener(ev, reset));
     };
   }, [router]);
-
-  if (inactividad) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">
-        <div className="w-full max-w-md rounded-xl bg-white p-8 text-center shadow">
-          <div className="mb-3 text-4xl">⏱️</div>
-          <h1 className="mb-2 text-xl font-bold text-amber-700">
-            Sesión cerrada por inactividad
-          </h1>
-          <p className="text-gray-600">
-            Vuelve a iniciar sesión para continuar.
-          </p>
-        </div>
-      </main>
-    );
-  }
 
   return (
     <SidebarProvider>
@@ -111,6 +124,29 @@ export default function PanelLayout({
           </div>
         </div>
       </SidebarInset>
+
+      {avisoInactividad && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 text-center shadow-xl">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-amber-100">
+              <Clock className="h-6 w-6 text-amber-600" />
+            </div>
+            <h2 className="mb-2 text-lg font-bold text-amber-700">
+              Tu sesión está por expirar
+            </h2>
+            <p className="mb-4 text-gray-600">
+              Por inactividad, tu sesión se cerrará en{" "}
+              <b>{segundosRestantes}</b> {segundosRestantes === 1 ? "segundo" : "segundos"}.
+            </p>
+            <button
+              onClick={resetRef.current}
+              className="w-full rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700"
+            >
+              Continuar sesión
+            </button>
+          </div>
+        </div>
+      )}
     </SidebarProvider>
   );
 }

@@ -84,4 +84,19 @@ export class AuthService {
     });
     throw new UnauthorizedException('Usuario o contraseña incorrectos');
   }
+
+  async logout(actor?: {
+    usuario?: string | null;
+    ip?: string | null;
+    userAgent?: string | null;
+  }) {
+    await this.auditoria.registrar({
+      usuario: actor?.usuario ?? null,
+      ip: actor?.ip ?? null,
+      userAgent: actor?.userAgent ?? null,
+      accion: 'logout',
+      detalle: 'Cierre de sesión',
+    });
+    return { ok: true };
+  }
 }

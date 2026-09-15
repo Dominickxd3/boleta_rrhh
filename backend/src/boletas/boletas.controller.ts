@@ -97,6 +97,11 @@ export class BoletasController {
     return this.service.enviarMasivo(dto.ids, actorDe(req));
   }
 
+  @Get('correo-estado')
+  estadoCorreo() {
+    return this.service.estadoCorreo();
+  }
+
   @Post(':id/enviar-correo')
   enviarCorreo(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
     return this.service.enviarCorreo(id, actorDe(req));

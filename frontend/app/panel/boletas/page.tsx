@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   BadgeCheck,
   Download,
   Eye,
   FileCheck2,
   FileText,
   Link2,
+  Lock,
   RefreshCw,
   Send,
   X,
@@ -15,22 +17,212 @@ import {
 import Swal from "sweetalert2";
 import { apiFetch, API_URL, getToken } from "@/lib/api";
 import AreaSelect from "@/components/AreaSelect";
+import DetalleContenido from "@/components/BoletaContenido";
 import {
   Boleta,
+  CorreoEstado,
   EnviarMasivoResultado,
   GenerarResultado,
   Periodo,
   PorAreaResultado,
 } from "@/lib/types";
 import { nombreMes } from "@/lib/format";
+import {
+  esPeriodoCerrado,
+  esPeriodoEnCurso,
+  getPeriodoPersistido,
+  guardarPeriodoPersistido,
+} from "@/lib/periodo";
 
-const moneda = (n: number) =>
-  n.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const estadoSmtpInfo = (estado?: EnviarMasivoResultado["smtpEstado"]) => {
+  switch (estado) {
+    case "ok":
+      return {
+        texto: "Servidor de correo operativo",
+        color: "#16a34a",
+        fondo: "#ecfdf5",
+        borde: "#a7f3d0",
+      };
+    case "auth":
+      return {
+        texto:
+          "La cuenta de correo rechazó el acceso. Revisa la cuenta Gmail (posible aviso de seguridad) o el permiso de aplicaciones.",
+        color: "#b91c1c",
+        fondo: "#fef2f2",
+        borde: "#fecaca",
+      };
+    case "cuota":
+      return {
+        texto: "Se alcanzó el límite de envíos del día permitido por el proveedor.",
+        color: "#b45309",
+        fondo: "#fffbeb",
+        borde: "#fde68a",
+      };
+    case "rechazado":
+      return {
+        texto:
+          "El proveedor de correo rechazó el mensaje de forma permanente. Revisa tu cuenta Gmail (posible bloqueo por actividad sospechosa).",
+        color: "#b91c1c",
+        fondo: "#fef2f2",
+        borde: "#fecaca",
+      };
+    case "bloqueado":
+      return {
+        texto:
+          "El proveedor de correo rechazó algunos envíos de forma temporal (se reintentaron). Espera un momento y vuelve a intentar.",
+        color: "#b45309",
+        fondo: "#fffbeb",
+        borde: "#fde68a",
+      };
+    case "indisponible":
+      return {
+        texto: "El servidor de correo no está disponible en este momento",
+        color: "#b45309",
+        fondo: "#fffbeb",
+        borde: "#fde68a",
+      };
+    default:
+      return {
+        texto: "El envío de correo no está configurado (avisa al administrador)",
+        color: "#6b7280",
+        fondo: "#f3f4f6",
+        borde: "#e5e7eb",
+      };
+  }
+};
+
+const resumenEnvioHtml = (res: EnviarMasivoResultado): string => {
+  const pct = res.limiteDiario
+    ? Math.min(100, Math.round(((res.usadosHoy ?? 0) / res.limiteDiario) * 100))
+    : 0;
+  const colorBarra = pct >= 90 ? "#dc2626" : pct >= 70 ? "#d97706" : "#16a34a";
+  const smtp = estadoSmtpInfo(res.smtpEstado);
+
+  let html = `<div style="text-align:left;font-size:13px;line-height:1.55">`;
+
+  // Tarjetas de resultado
+  html += `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+    <div style="flex:1;min-width:88px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:8px 10px;text-align:center">
+      <div style="font-size:20px;font-weight:700;color:#059669">${res.enviados}</div>
+      <div style="color:#047857;font-size:11px">Enviados</div>
+    </div>
+    <div style="flex:1;min-width:88px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:8px 10px;text-align:center">
+      <div style="font-size:20px;font-weight:700;color:#dc2626">${res.errores}</div>
+      <div style="color:#b91c1c;font-size:11px">Con error</div>
+    </div>
+    <div style="flex:1;min-width:88px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:8px 10px;text-align:center">
+      <div style="font-size:20px;font-weight:700;color:#d97706">${res.sinEmail}</div>
+      <div style="color:#b45309;font-size:11px">Sin correo</div>
+    </div>
+    <div style="flex:1;min-width:88px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:8px 10px;text-align:center">
+      <div style="font-size:20px;font-weight:700;color:#2563eb">${res.yaEnviados}</div>
+      <div style="color:#1d4ed8;font-size:11px">Ya enviados</div>
+    </div>
+  </div>`;
+
+  // Duración
+  if (res.duracionSeg !== undefined) {
+    const m = Math.floor(res.duracionSeg / 60);
+    const s = res.duracionSeg % 60;
+    html += `<p style="margin:0 0 8px;color:#374151">⏱️ <b>Duración:</b> ${m > 0 ? `${m} min ` : ""}${s} s</p>`;
+  }
+
+  // Tope alcanzado
+  if (res.topeAlcanzado) {
+    html += `<p style="margin:0 0 8px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:8px 10px"><b>⚠️ Límite de envíos de hoy alcanzado.</b> El lote se detuvo para no superar el máximo del día.</p>`;
+  }
+
+  // Errores detalle
+  if (res.erroresDetalle && res.erroresDetalle.length > 0) {
+    const lista = res.erroresDetalle
+      .slice(0, 8)
+      .map((d) => `• ${d.nombre} <span style="color:#9ca3af">(${d.periodo})</span> — <span style="color:#dc2626">${d.motivo}</span>`)
+      .join("<br/>");
+    const resto =
+      res.erroresDetalle.length > 8
+        ? `<br/><span style="color:#6b7280">…y ${res.erroresDetalle.length - 8} más</span>`
+        : "";
+    html += `<div style="margin:8px 0;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;background:#fff7f7"><b style="color:#b91c1c">No enviados (${res.erroresDetalle.length}):</b><br/>${lista}${resto}</div>`;
+  }
+
+  // Sin correo detalle
+  if (res.sinEmailDetalle && res.sinEmailDetalle.length > 0) {
+    const lista = res.sinEmailDetalle
+      .map((d) => `• ${d.nombre} <span style="color:#9ca3af">(${d.area})</span>`)
+      .join("<br/>");
+    html += `<div style="margin:8px 0;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;background:#fffbeb"><b style="color:#b45309">Sin correo asignado (${res.sinEmailDetalle.length}):</b><br/>${lista}</div>`;
+  }
+
+  // Estado SMTP
+  html += `<div style="margin:8px 0;border:1px solid ${smtp.borde};border-radius:8px;padding:8px 10px;background:${smtp.fondo};color:${smtp.color}">📧 <b>Estado del correo:</b> ${smtp.texto}`;
+  if (res.ultimoError) {
+    html += `<br/><span style="font-size:11px;opacity:.85">Detalle: ${res.ultimoError}</span>`;
+  }
+  html += `</div>`;
+
+  // Envíos del día
+  if (res.limiteDiario !== undefined && res.usadosHoy !== undefined) {
+    html += `<div style="margin:8px 0;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;background:#f9fafb">
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#374151;margin-bottom:4px">
+        <span><b>Enviados hoy:</b> ${res.usadosHoy} de ${res.limiteDiario}</span>
+        <span style="color:#059669"><b>${res.restantesHoy} disponibles hoy</b></span>
+      </div>
+      <div style="background:#e5e7eb;border-radius:9999px;height:8px;overflow:hidden">
+        <div style="background:${colorBarra};height:8px;width:${pct}%"></div>
+      </div>
+    </div>`;
+  }
+
+  html += `</div>`;
+  return html;
+};
+
+// Clasifica la boleta para etiqueta/detalle de estado
+function estadoBoleta(b: Boleta): {
+  etiqueta: string;
+  style: string;
+  vencido: boolean;
+} {
+  if (b.estado === "FIRMADA") {
+    return { etiqueta: "Firmada", style: "bg-green-100 text-green-700", vencido: false };
+  }
+  if (!b.emailEnviado) {
+    return { etiqueta: "Pendiente", style: "bg-amber-100 text-amber-700", vencido: false };
+  }
+  if (b.firmaExpira && new Date(b.firmaExpira).getTime() < Date.now()) {
+    return {
+      etiqueta: "Enlace vencido",
+      style: "bg-red-100 text-red-700",
+      vencido: true,
+    };
+  }
+  return { etiqueta: "Enviado sin firmar", style: "bg-blue-100 text-blue-700", vencido: false };
+}
 
 export default function BoletasPage() {
-  const ahora = new Date();
-  const [anio, setAnio] = useState(String(ahora.getFullYear()));
-  const [mes, setMes] = useState(String(ahora.getMonth() + 1).padStart(2, "0"));
+  const [periodoSeleccion] = useState(() => getPeriodoPersistido());
+  const [anio, setAnio] = useState(periodoSeleccion.anio);
+  const [mes, setMes] = useState(periodoSeleccion.mes);
+
+  useEffect(() => {
+    const p = getPeriodoPersistido();
+    if (p.anio !== anio || p.mes !== mes) {
+      setAnio(p.anio);
+      setMes(p.mes);
+    }
+  }, []);
+
+  const cambiarAnio = (nuevoAnio: string) => {
+    setAnio(nuevoAnio);
+    guardarPeriodoPersistido(nuevoAnio, mes);
+    setSeleccionadas(new Set());
+  };
+
+  const cambiarMes = (nuevoMes: string) => {
+    setMes(nuevoMes);
+    guardarPeriodoPersistido(anio, nuevoMes);
+    setSeleccionadas(new Set());
+  };
   const [porArea, setPorArea] = useState<PorAreaResultado>({
     total: 0,
     areas: [],
@@ -47,6 +239,17 @@ export default function BoletasPage() {
   const [generando, setGenerando] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [seleccionadas, setSeleccionadas] = useState<Set<number>>(new Set());
+  const [correoEstado, setCorreoEstado] = useState<CorreoEstado | null>(null);
+
+  const cargarCorreoEstado = useCallback(() => {
+    apiFetch<CorreoEstado>("/boletas/correo-estado")
+      .then(setCorreoEstado)
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    cargarCorreoEstado();
+  }, [cargarCorreoEstado]);
 
   const [periodos, setPeriodos] = useState<Periodo[]>([]);
 
@@ -77,6 +280,13 @@ export default function BoletasPage() {
       es.removeEventListener("boleta.firmada", onFirmada);
       es.close();
     };
+  }, [cargarPorArea]);
+
+  // Respaldo por si el stream SSE falla (p. ej. buffering de IIS/proxy):
+  // el panel igual se refresca solo y detecta firmas en tiempo real.
+  useEffect(() => {
+    const id = setInterval(() => cargarPorArea(), 30000);
+    return () => clearInterval(id);
   }, [cargarPorArea]);
 
   useEffect(() => {
@@ -127,6 +337,13 @@ export default function BoletasPage() {
     );
   }, [boletas, busqueda, areaFiltro, tab]);
 
+  const abrirDetalle = useCallback((b: Boleta) => {
+    setVista(b);
+    apiFetch<Boleta>(`/boletas/${b.id}`)
+      .then((completa) => setVista(completa))
+      .catch(() => {});
+  }, []);
+
   const areas = useMemo(
     () =>
       Array.from(
@@ -136,7 +353,7 @@ export default function BoletasPage() {
   );
 
   const pendientesVisibles = useMemo(
-    () => visibles.filter((b) => !b.emailEnviado),
+    () => visibles.filter((b) => b.estado !== "FIRMADA"),
     [visibles],
   );
 
@@ -155,6 +372,19 @@ export default function BoletasPage() {
       lista[0]
     );
   }, [periodos, anio, mes]);
+
+  // Regla de negocio: ¿El período seleccionado está cerrado o en curso?
+  const esCerrado = useMemo(() => {
+    if (porArea.periodoInfo) return porArea.periodoInfo.esCerrado;
+    return esPeriodoCerrado(anio, mes);
+  }, [porArea.periodoInfo, anio, mes]);
+
+  const esEnCurso = useMemo(() => {
+    if (porArea.periodoInfo) return porArea.periodoInfo.esEnCurso;
+    return esPeriodoEnCurso(anio, mes);
+  }, [porArea.periodoInfo, anio, mes]);
+
+  const envioMasivoBloqueado = !esCerrado;
 
   const generar = async () => {
     const anomes = `${anio}${mes}`;
@@ -186,7 +416,13 @@ export default function BoletasPage() {
       Swal.fire({
         icon: "success",
         title: "Boletas actualizadas",
-        html: `<b>${res.boletasGeneradas}</b> boletas de ${res.trabajadores} trabajadores<br/>Omitidas (ya existían): <b>${res.boletasOmitidas}</b> · Nuevos trabajadores: ${res.trabajadoresCreados}`,
+        html:
+          res.boletasGeneradas > 0
+            ? `Se importaron <b>${res.boletasGeneradas}</b> boletas de <b>${res.trabajadores}</b> trabajadores` +
+              (res.trabajadoresCreados > 0
+                ? `<br/>Se registraron <b>${res.trabajadoresCreados}</b> trabajadores nuevos`
+                : "")
+            : `Las boletas de los <b>${res.trabajadores}</b> trabajadores ya estaban importadas`,
         confirmButtonColor: "#2563eb",
       });
       cargarPorArea();
@@ -203,6 +439,8 @@ export default function BoletasPage() {
   };
 
   const enviarCorreo = async (b: Boleta) => {
+    // Nota: el envío individual siempre está permitido.
+    // Solo el envío masivo se bloquea mientras el período está en curso.
     const email = b.trabajador.email?.trim();
     if (!email) {
       await Swal.fire({
@@ -272,6 +510,7 @@ export default function BoletasPage() {
   };
 
   const toggleSeleccion = (id: number) => {
+    if (envioMasivoBloqueado) return;
     setSeleccionadas((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -284,10 +523,11 @@ export default function BoletasPage() {
   };
 
   const toggleTodos = (marcar: boolean) => {
+    if (envioMasivoBloqueado) return;
     setSeleccionadas((prev) => {
       const next = new Set(prev);
       for (const b of visibles) {
-        if (b.emailEnviado) continue;
+        if (b.estado === "FIRMADA") continue;
         if (marcar) {
           next.add(b.id);
         } else {
@@ -299,11 +539,20 @@ export default function BoletasPage() {
   };
 
   const enviarSeleccionadas = async () => {
+    if (envioMasivoBloqueado) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Período en curso",
+        text: "El período actual permanece bloqueado para el envío masivo hasta que finalice el mes.",
+        confirmButtonColor: "#2563eb",
+      });
+      return;
+    }
     const ids = Array.from(seleccionadas);
     const conf = await Swal.fire({
       icon: "question",
       title: "Enviar correos",
-      text: `¿Enviar el link de firma a los ${ids.length} trabajadores seleccionados?`,
+      text: `¿Enviar o reenviar el link de firma a los ${ids.length} trabajadores seleccionados?`,
       showCancelButton: true,
       confirmButtonText: "Enviar",
       cancelButtonText: "Cancelar",
@@ -323,22 +572,18 @@ export default function BoletasPage() {
         body: JSON.stringify({ ids }),
       });
       Swal.fire({
-        icon: "success",
-        title: "Correos enviados",
-        html: (() => {
-          let html = `<b>${res.enviados}</b> enviados · <b>${res.yaEnviados}</b> ya enviados · <b>${res.sinEmail}</b> sin correo registrado · <b>${res.errores}</b> con error`;
-          if (res.sinEmailDetalle && res.sinEmailDetalle.length > 0) {
-            const lista = res.sinEmailDetalle
-              .map((d) => `• ${d.nombre} <span style="color:#6b7280">(${d.area})</span>`)
-              .join("<br/>");
-            html += `<br/><br/><div style="text-align:left;font-size:13px"><b>Sin correo asignado (${res.sinEmailDetalle.length}):</b><br/>${lista}</div>`;
-          }
-          return html;
-        })(),
+        icon: res.errores > 0 && res.enviados === 0 ? "error" : "success",
+        title:
+          res.errores > 0 && res.enviados === 0
+            ? "Ninguno enviado"
+            : "Correos enviados",
+        html: resumenEnvioHtml(res),
+        width: 480,
         confirmButtonColor: "#2563eb",
       });
       setSeleccionadas(new Set());
       cargarPorArea();
+      cargarCorreoEstado();
     } catch (err) {
       Swal.fire({
         icon: "error",
@@ -402,15 +647,33 @@ export default function BoletasPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Boletas</h1>
-          <p className="text-gray-500 text-sm">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-2xl font-bold">Boletas</h1>
+            {esEnCurso ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 border border-amber-300 px-3 py-0.5 text-xs font-semibold text-amber-800">
+                <Lock className="h-3.5 w-3.5 text-amber-700" />
+                Período en curso – envío masivo bloqueado
+              </span>
+            ) : esCerrado ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-0.5 text-xs font-medium text-emerald-700">
+                <BadgeCheck className="h-3.5 w-3.5 text-emerald-600" />
+                Período cerrado
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 border border-slate-300 px-3 py-0.5 text-xs font-medium text-slate-700">
+                <Lock className="h-3.5 w-3.5 text-slate-600" />
+                Período no cerrado – envío bloqueado
+              </span>
+            )}
+          </div>
+          <p className="text-gray-500 text-sm mt-0.5">
             {nombreMes(Number(mes))} {anio}
           </p>
         </div>
         <div className="flex flex-wrap gap-2 ml-auto">
           <select
             value={anio}
-            onChange={(e) => setAnio(e.target.value)}
+            onChange={(e) => cambiarAnio(e.target.value)}
             className="rounded-lg border border-gray-300 px-3 py-2"
           >
             {[2024, 2025, 2026, 2027, 2028].map((a) => (
@@ -421,14 +684,24 @@ export default function BoletasPage() {
           </select>
           <select
             value={mes}
-            onChange={(e) => setMes(e.target.value)}
+            onChange={(e) => cambiarMes(e.target.value)}
             className="rounded-lg border border-gray-300 px-3 py-2"
           >
-            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-              <option key={m} value={String(m).padStart(2, "0")}>
-                {nombreMes(m)}
-              </option>
-            ))}
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => {
+              const val = String(m).padStart(2, "0");
+              const mCerrado = esPeriodoCerrado(anio, val);
+              const mEnCurso = esPeriodoEnCurso(anio, val);
+              const etiqueta = mEnCurso
+                ? `${nombreMes(m)} (En curso)`
+                : mCerrado
+                  ? `${nombreMes(m)}`
+                  : `${nombreMes(m)} (Futuro)`;
+              return (
+                <option key={m} value={val}>
+                  {etiqueta}
+                </option>
+              );
+            })}
           </select>
           <button
             onClick={generar}
@@ -440,6 +713,23 @@ export default function BoletasPage() {
           </button>
         </div>
       </div>
+
+      {/* ====== Banner Informativo Período en Curso ====== */}
+      {envioMasivoBloqueado && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 shadow-sm flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <p className="font-semibold text-amber-900">
+              {esEnCurso
+                ? "Período en curso – envío masivo bloqueado"
+                : "Período no cerrado – envío masivo bloqueado"}
+            </p>
+            <p className="mt-0.5 text-amber-800">
+              Las boletas de este período están disponibles únicamente para consulta y visualización. El envío masivo de correos permanecerá bloqueado hasta que finalice el mes para prevenir envíos prematuros o accidentales.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ====== KPIs ====== */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -515,28 +805,76 @@ export default function BoletasPage() {
         {seleccionadas.size > 0 && (
           <button
             onClick={enviarSeleccionadas}
-            disabled={enviando}
-            className="ml-auto inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-1.5 text-sm text-gray-700 font-medium hover:bg-gray-50 disabled:opacity-50"
+            disabled={enviando || envioMasivoBloqueado}
+            title={
+              envioMasivoBloqueado
+                ? "El envío masivo está bloqueado para el período en curso hasta fin de mes"
+                : `Enviar ${seleccionadas.size} boletas`
+            }
+            className="ml-auto inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-1.5 text-sm text-gray-700 font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Send className="h-4 w-4" />
+            {envioMasivoBloqueado ? (
+              <Lock className="h-4 w-4 text-amber-600" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
             Enviar ({seleccionadas.size})
           </button>
+        )}
+        {correoEstado && (
+          <div
+            className={`ml-2 inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium ${
+              correoEstado.restantesHoy <= 0
+                ? "border-red-300 bg-red-50 text-red-700"
+                : correoEstado.estado === "bloqueado" || correoEstado.estado === "indisponible"
+                  ? "border-amber-300 bg-amber-50 text-amber-700"
+                  : "border-gray-300 bg-white text-gray-600"
+            }`}
+            title={
+              correoEstado.restantesHoy <= 0
+                ? "Se alcanzó el límite de envíos de hoy"
+                : correoEstado.ultimoError
+                  ? `Detalle: ${correoEstado.ultimoError}`
+                  : `Enviados hoy: ${correoEstado.usadosHoy} de ${correoEstado.limiteDiario}`
+            }
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${
+                correoEstado.restantesHoy <= 0
+                  ? "bg-red-500"
+                  : correoEstado.estado === "ok"
+                    ? "bg-green-500"
+                    : "bg-amber-500"
+              }`}
+            />
+            Envíos de hoy: {correoEstado.restantesHoy} disponibles
+          </div>
         )}
       </div>
 
       {/* ====== Tarjetas (móvil) ====== */}
       <div className="space-y-3 md:hidden">
-        <label className="flex items-center gap-2 px-1 text-sm font-medium text-gray-700">
+        <label
+          className={`flex items-center gap-2 px-1 text-sm font-medium ${
+            envioMasivoBloqueado
+              ? "text-gray-400 cursor-not-allowed"
+              : "text-gray-700"
+          }`}
+        >
           <input
             type="checkbox"
             checked={
+              !envioMasivoBloqueado &&
               pendientesVisibles.length > 0 &&
               pendientesVisibles.every((b) => seleccionadas.has(b.id))
             }
+            disabled={envioMasivoBloqueado || pendientesVisibles.length === 0}
             onChange={(e) => toggleTodos(e.target.checked)}
-            className="h-4 w-4"
+            className="h-4 w-4 disabled:opacity-40 disabled:cursor-not-allowed"
           />
-          Seleccionar pendientes
+          {envioMasivoBloqueado
+            ? "Selección bloqueada (período en curso)"
+            : "Seleccionar sin firmar"}
         </label>
         {paginados.map((b) => (
           <div
@@ -557,15 +895,14 @@ export default function BoletasPage() {
                   </p>
                 )}
               </div>
-              {b.estado === "FIRMADA" ? (
-                <span className="inline-flex shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                  Firmada
-                </span>
-              ) : (
-                <span className="inline-flex shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
-                  Pendiente
-                </span>
-              )}
+              {(() => {
+                  const st = estadoBoleta(b);
+                  return (
+                    <span className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${st.style}`}>
+                      {st.etiqueta}
+                    </span>
+                  );
+                })()}
             </div>
 
             <div className="mt-2 flex items-center justify-between gap-2">
@@ -573,9 +910,15 @@ export default function BoletasPage() {
                 <input
                   type="checkbox"
                   checked={seleccionadas.has(b.id)}
+                  disabled={envioMasivoBloqueado}
                   onChange={() => toggleSeleccion(b.id)}
-                  className="h-4 w-4"
+                  className="h-4 w-4 disabled:opacity-40 disabled:cursor-not-allowed"
                   aria-label="Seleccionar boleta"
+                  title={
+                    envioMasivoBloqueado
+                      ? "Envío masivo bloqueado para el período en curso"
+                      : "Seleccionar boleta"
+                  }
                 />
                 {b.emailEnviado ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
@@ -589,7 +932,7 @@ export default function BoletasPage() {
               </div>
               <div className="flex flex-wrap justify-end gap-2">
                 <button
-                  onClick={() => setVista(b)}
+                  onClick={() => abrirDetalle(b)}
                   title="Ver detalle"
                   className={accionIcono}
                 >
@@ -677,11 +1020,18 @@ export default function BoletasPage() {
                   <input
                     type="checkbox"
                     checked={
+                      !envioMasivoBloqueado &&
                       pendientesVisibles.length > 0 &&
                       pendientesVisibles.every((b) => seleccionadas.has(b.id))
                     }
+                    disabled={envioMasivoBloqueado || pendientesVisibles.length === 0}
                     onChange={(e) => toggleTodos(e.target.checked)}
-                    className="h-4 w-4"
+                    title={
+                      envioMasivoBloqueado
+                        ? "Envío masivo bloqueado para el período en curso"
+                        : "Seleccionar todos los pendientes"
+                    }
+                    className="h-4 w-4 disabled:opacity-40 disabled:cursor-not-allowed"
                   />
                 </th>
                 <th className="text-left px-4 py-2">DNI</th>
@@ -699,8 +1049,14 @@ export default function BoletasPage() {
                     <input
                       type="checkbox"
                       checked={seleccionadas.has(b.id)}
+                      disabled={envioMasivoBloqueado}
                       onChange={() => toggleSeleccion(b.id)}
-                      className="h-4 w-4"
+                      title={
+                        envioMasivoBloqueado
+                          ? "Envío masivo bloqueado para el período en curso"
+                          : "Seleccionar boleta"
+                      }
+                      className="h-4 w-4 disabled:opacity-40 disabled:cursor-not-allowed"
                     />
                   </td>
                   <td className="px-4 py-2">{b.trabajador.dni}</td>
@@ -710,16 +1066,15 @@ export default function BoletasPage() {
                   <td className="hidden md:table-cell px-4 py-2 text-gray-500">
                     {b.trabajador.area || "—"}
                   </td>
-                  <td className="px-4 py-2">
-                    {b.estado === "FIRMADA" ? (
-                      <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                        Firmada
+                  <td className="px-4 py-2 text-center">
+                    {(() => {
+                    const st = estadoBoleta(b);
+                    return (
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${st.style}`}>
+                        {st.etiqueta}
                       </span>
-                    ) : (
-                      <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
-                        Pendiente
-                      </span>
-                    )}
+                    );
+                  })()}
                   </td>
                   <td className="px-4 py-2">
                     {b.emailEnviado ? (
@@ -735,7 +1090,7 @@ export default function BoletasPage() {
                   <td className="px-4 py-2">
                     <div className="flex gap-2">
                       <button
-                        onClick={() => setVista(b)}
+                        onClick={() => abrirDetalle(b)}
                         title="Ver detalle"
                         className={accionIcono}
                       >
@@ -773,11 +1128,7 @@ export default function BoletasPage() {
                       {b.estado !== "FIRMADA" && (
                         <button
                           onClick={() => enviarCorreo(b)}
-                          title={
-                            b.emailEnviado
-                              ? "Reenviar correo"
-                              : "Enviar correo"
-                          }
+                          title={b.emailEnviado ? "Reenviar correo" : "Enviar correo"}
                           className={accionIcono}
                         >
                           <Send className="h-4 w-4" />
@@ -849,7 +1200,7 @@ export default function BoletasPage() {
           onClick={() => setVista(null)}
         >
           <div
-            className="w-full max-w-lg rounded-xl bg-white shadow-xl"
+            className="flex max-h-[90dvh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
@@ -862,74 +1213,15 @@ export default function BoletasPage() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="p-5 space-y-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="font-semibold">{vista.trabajador.nombreCompleto}</p>
-                  <p className="text-xs text-gray-500">
-                    DNI {vista.trabajador.dni} · Periodo {vista.periodo}
-                    {vista.trabajador.area ? ` · ${vista.trabajador.area}` : ""}
-                  </p>
-                </div>
-                {vista.estado === "FIRMADA" ? (
-                  <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                    Firmada
-                  </span>
-                ) : (
-                  <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
-                    Pendiente
-                  </span>
-                )}
-              </div>
-
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
               {vista.detalle && (
-                <>
-                  {vista.detalle.ingresos && vista.detalle.ingresos.length > 0 && (
-                    <div>
-                      <p className="text-xs font-medium text-gray-500 uppercase mb-1">
-                        Ingresos
-                      </p>
-                      <div className="rounded-lg border divide-y divide-gray-100">
-                        {vista.detalle.ingresos.map((c, i) => (
-                          <div
-                            key={i}
-                            className="flex items-center justify-between px-3 py-1.5 text-sm"
-                          >
-                            <span>{c.concepto}</span>
-                            <span>S/ {moneda(c.monto)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {vista.detalle.descuentos &&
-                    vista.detalle.descuentos.length > 0 && (
-                      <div>
-                        <p className="text-xs font-medium text-gray-500 uppercase mb-1">
-                          Descuentos
-                        </p>
-                        <div className="rounded-lg border divide-y divide-gray-100">
-                          {vista.detalle.descuentos.map((c, i) => (
-                            <div
-                              key={i}
-                              className="flex items-center justify-between px-3 py-1.5 text-sm"
-                            >
-                              <span>{c.concepto}</span>
-                              <span className="text-red-600">
-                                - S/ {moneda(c.monto)}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  <div className="flex items-center justify-between border-t pt-3">
-                    <span className="font-medium">Neto a pagar</span>
-                    <span className="text-xl font-bold text-black">
-                      S/ {moneda(vista.detalle.netoPagar ?? 0)}
-                    </span>
-                  </div>
-                </>
+                <DetalleContenido
+                  detalle={vista.detalle}
+                  trabajador={vista.trabajador.nombreCompleto}
+                  dni={vista.trabajador.dni}
+                  periodo={vista.periodo}
+                  boletaId={vista.id}
+                />
               )}
             </div>
             <div className="flex justify-end border-t border-gray-100 px-5 py-4">

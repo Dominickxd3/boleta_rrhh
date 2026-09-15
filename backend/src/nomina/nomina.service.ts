@@ -22,6 +22,8 @@ export interface DetalleNomina {
   totDias: number;
   totHoras: number;
   documento: string;
+  dni: string;
+  trabajadorNombre: string;
   situacion: string;
   fIngreso: string;
   fCese: string;
@@ -251,13 +253,21 @@ export class NominaService {
 
   private movimDe(f: Fila, concepto: string, diaBasico: number): string {
     if (concepto === 'SUELDO BASICO' && diaBasico > 0) {
-      return `${diaBasico.toFixed(2)} DIAS`;
+      return `${Math.round(diaBasico)} DIAS`;
     }
     if (/INASISTENCIA|FALTA/i.test(concepto)) {
       return '';
     }
     const horas = this.num(f.Horas);
-    if (horas > 0) return `${horas.toFixed(2)} HORAS`;
+    if (horas > 0) {
+      // JORNADA DIURNA y JORNADA NOCTURNA: el campo Horas contiene días (no horas).
+      // Se muestra como "X DIAS" (entero, sin decimales).
+      if (/JORNADA\s+(DIURNA|NOCTURNA)/i.test(concepto)) {
+        return `${Math.floor(horas)} DIAS`;
+      }
+      // Resto de conceptos con horas: mostrar como entero sin decimales.
+      return `${Math.floor(horas)} HORAS`;
+    }
     return '';
   }
 
@@ -314,6 +324,8 @@ export class NominaService {
       totDias,
       totHoras: this.num(f0.totHoras),
       documento: `DNI ${this.txt(f0.tra_nrodni)}`,
+      dni: this.txt(f0.tra_nrodni),
+      trabajadorNombre: `${this.txt(f0.tra_apepat)} ${this.txt(f0.tra_apemat)} ${this.txt(f0.tra_nombre)}`.trim(),
       situacion: est === '0' ? 'ACTIVO' : est,
       fIngreso: this.f8(f0.reg_fecins),
       fCese: '',
@@ -325,11 +337,11 @@ export class NominaService {
       condicion: 'DOMICILIADO',
       otrosEmpRta5ta: 'NO TIENE',
       periodoTexto: `${remIni.slice(4, 6)}/${remIni.slice(0, 4)} - Del ${this.f8(remIni)} Al ${this.f8(remFin)}`,
-      diasLaborados: `${diaBasico} / ${totDias - diaBasico} / ${this.num(f0.todDiasDMedi)}`,
+      diasLaborados: `${this.num(f0.totDias)} / ${this.num(f0.totDiasFalta)} / ${this.num(f0.todDiasDMedi)}`,
       jornadaOrdinaria: `${this.num(f0.totHoras)} / ${this.num(f0.totMinuto)}`,
       sobretiempo: `${this.num(f0.totHorasSob)} / ${this.num(f0.totMinutoSob)}`,
-      diasLab: diaBasico,
-      diasNL: totDias - diaBasico,
+      diasLab: this.num(f0.totDias),
+      diasNL: Math.max(0, this.num(f0.totDiasFalta)),
       diasSub: this.num(f0.todDiasDMedi),
       horasExtra: this.num(f0.totHorasSob),
       minutos: this.num(f0.totMinuto),
@@ -401,6 +413,9 @@ export class NominaService {
       const dni = this.txt(f0.tra_nrodni);
       const area = this.txt(f0.cc_descri);
 
+      // La importación de boletas es INDEPENDIENTE de la sincronización de
+      // trabajadores: solo crea el trabajador si realmente no existe (INSERT),
+      // pero NUNCA modifica el área/cargo/estado de trabajadores ya registrados.
       let worker = porDni.get(dni);
       if (!worker) {
         worker = await this.workers.create({
@@ -412,13 +427,6 @@ export class NominaService {
         });
         porDni.set(dni, worker);
         trabajadoresCreados++;
-      } else if (area && worker.area !== area) {
-        worker = await this.workers.update(worker.id, {
-          area,
-          activo: true,
-        });
-      } else if (!worker.activo) {
-        worker = await this.workers.update(worker.id, { activo: true });
       }
 
       const boleta = await this.boletas.crearDesdeNomina(

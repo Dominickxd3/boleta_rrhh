@@ -29,6 +29,8 @@ export interface Detalle {
   centroCostos?: string;
   situacion?: string;
   documento?: string;
+  dni?: string;
+  trabajadorNombre?: string;
   diasLab?: number;
   diasNL?: number;
   diasSub?: number;
@@ -118,6 +120,7 @@ export interface Boleta {
   urlVer: string | null;
   emailEnviado: boolean;
   fechaEmail: string | null;
+  firmaExpira: string | null;
   detalle?: Detalle;
 }
 
@@ -136,9 +139,19 @@ export interface AreaBoletas {
   boletas: Boleta[];
 }
 
+export interface PeriodoInfo {
+  anio: number;
+  mes: number;
+  esCerrado: boolean;
+  esEnCurso: boolean;
+  esFuturo: boolean;
+  estadoTexto: string;
+}
+
 export interface PorAreaResultado {
   total: number;
   areas: AreaBoletas[];
+  periodoInfo?: PeriodoInfo;
 }
 
 export interface SincronizarTrabajadoresResultado {
@@ -173,4 +186,37 @@ export interface EnviarMasivoResultado {
   yaEnviados: number;
   errores: number;
   sinEmailDetalle?: { nombre: string; area: string }[];
+  erroresDetalle?: { nombre: string; periodo: string; motivo: string }[];
+  topeAlcanzado?: boolean;
+  duracionSeg?: number;
+  usadosHoy?: number;
+  restantesHoy?: number;
+  limiteDiario?: number;
+  smtpEstado?:
+    | "ok"
+    | "bloqueado"
+    | "indisponible"
+    | "no_configurado"
+    | "auth"
+    | "cuota"
+    | "rechazado";
+  ultimoError?: string | null;
+  ultimoErrorFecha?: string | null;
+}
+
+export interface CorreoEstado {
+  configurado: boolean;
+  limiteDiario: number;
+  usadosHoy: number;
+  restantesHoy: number;
+  estado:
+    | "ok"
+    | "bloqueado"
+    | "indisponible"
+    | "no_configurado"
+    | "auth"
+    | "cuota"
+    | "rechazado";
+  ultimoError: string | null;
+  ultimoErrorFecha: string | null;
 }

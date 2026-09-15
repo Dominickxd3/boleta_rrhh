@@ -1,5 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import * as nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 
@@ -17,11 +19,39 @@ export interface CorreoBoletaFirmadaArgs {
   pdfBuffer: Uint8Array;
 }
 
-@Injectable()
-export class MailService {
-  private transporter: Transporter | null = null;
+export type EstadoCorreo =
+  | 'ok'
+  | 'bloqueado'
+  | 'indisponible'
+  | 'no_configurado'
+  | 'auth'
+  | 'cuota'
+  | 'rechazado';
 
-  constructor(private readonly config: ConfigService) {
+export interface CorreoEstadoInfo {
+  configurado: boolean;
+  limiteDiario: number;
+  usadosHoy: number;
+  restantesHoy: number;
+  estado: EstadoCorreo;
+  ultimoError: string | null;
+  ultimoErrorFecha: string | null;
+}
+
+@Injectable()
+export class MailService implements OnModuleInit {
+  private readonly logger = new Logger(MailService.name);
+  private transporter: Transporter | null = null;
+  private usadosHoy = 0;
+  private diaContador = '';
+  private ultimoEstado: EstadoCorreo = 'no_configurado';
+  private ultimoError: string | null = null;
+  private ultimoErrorFecha: string | null = null;
+
+  constructor(
+    private readonly config: ConfigService,
+    @Optional() @InjectDataSource() private readonly dataSource?: DataSource,
+  ) {
     const host = this.config.get<string>('SMTP_HOST');
     const port = parseInt(this.config.get<string>('SMTP_PORT', '587'), 10);
     const user = this.config.get<string>('SMTP_USER');
@@ -32,7 +62,81 @@ export class MailService {
         port,
         secure: port === 465,
         auth: { user, pass },
+        pool: true,
+        maxConnections: 1,
+        maxMessages: 200,
+        connectionTimeout: 20000,
+        greetingTimeout: 20000,
+        socketTimeout: 60000,
       });
+    }
+  }
+
+  async onModuleInit() {
+    await this.asegurarTablaMailEnvios();
+    await this.sincronizarDesdeBd();
+  }
+
+  private async asegurarTablaMailEnvios(): Promise<void> {
+    if (!this.dataSource?.isInitialized) return;
+    try {
+      await this.dataSource.query(`
+        IF OBJECT_ID('dbo.mail_envios', 'U') IS NULL
+        BEGIN
+          CREATE TABLE dbo.mail_envios (
+            id BIGINT IDENTITY(1,1) PRIMARY KEY,
+            fecha DATETIME2 NOT NULL DEFAULT GETDATE(),
+            tipo VARCHAR(50) NOT NULL,
+            destinatario VARCHAR(200) NULL,
+            estado VARCHAR(20) NOT NULL DEFAULT 'enviado'
+          );
+          CREATE INDEX IX_mail_envios_fecha ON dbo.mail_envios (fecha);
+        END
+      `);
+    } catch (err) {
+      this.logger.warn(`No se pudo asegurar tabla mail_envios: ${(err as Error).message}`);
+    }
+  }
+
+  async sincronizarDesdeBd(): Promise<number> {
+    if (!this.dataSource?.isInitialized) return this.usadosHoy;
+    try {
+      // Fuente principal de verdad: boletas con correo enviado hoy.
+      // dbo.boletas.fecha_email registra cada envío individual y masivo.
+      const resBoletas = await this.dataSource.query(`
+        SELECT COUNT(*) AS totalBoletas
+        FROM dbo.boletas
+        WHERE fecha_email >= CAST(CAST(GETDATE() AS DATE) AS DATETIME2)
+      `);
+      const enviosBoletas = Number(resBoletas?.[0]?.totalBoletas || 0);
+
+      // Fuente secundaria: mail_envios (incluye boleta_firmada y otros tipos).
+      // Puede estar vacía si fue creada después de enviar correos, por eso es secundaria.
+      let enviosRegistrados = 0;
+      try {
+        const resMail = await this.dataSource.query(`
+          SELECT COUNT(*) as c
+          FROM dbo.mail_envios
+          WHERE fecha >= CAST(CAST(GETDATE() AS DATE) AS DATETIME2)
+        `);
+        enviosRegistrados = Number(resMail?.[0]?.c || 0);
+      } catch {
+        // Tabla mail_envios puede no existir en instalaciones antiguas
+      }
+
+      // El total real es el mayor entre ambas fuentes.
+      // No usamos Math.max(this.usadosHoy, totalReal) en el reinicio porque
+      // this.usadosHoy arrancará en 0 y queremos que la BD mande.
+      const totalReal = Math.max(enviosBoletas, enviosRegistrados);
+
+      this.diaContador = this.hoy();
+      // Si el contador en memoria ya es mayor (por envios durante esta sesion),
+      // lo respetamos. Si no, tomamos el valor de la BD (caso de reinicio).
+      this.usadosHoy = Math.max(this.usadosHoy, totalReal);
+      return this.usadosHoy;
+    } catch (err) {
+      this.logger.warn(`Error al sincronizar contador de correos desde BD: ${(err as Error).message}`);
+      return this.usadosHoy;
     }
   }
 
@@ -47,6 +151,142 @@ export class MailService {
     return this.transporter !== null;
   }
 
+  // ===== Contador diario (límite de Gmail 500/día, tope configurable) =====
+  private hoy(): string {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  private resetSiCambioDia(): void {
+    const h = this.hoy();
+    if (this.diaContador !== h) {
+      this.diaContador = h;
+      this.usadosHoy = 0;
+    }
+  }
+
+  limiteDiario(): number {
+    return Number(this.config.get<string>('SMTP_DAILY_LIMIT', '450'));
+  }
+
+  usadosHoyValor(): number {
+    this.resetSiCambioDia();
+    return this.usadosHoy;
+  }
+
+  restantesHoy(): number {
+    this.resetSiCambioDia();
+    return Math.max(0, this.limiteDiario() - this.usadosHoy);
+  }
+
+  async estadoCorreo(): Promise<CorreoEstadoInfo> {
+    await this.sincronizarDesdeBd();
+    return {
+      configurado: this.transporter !== null,
+      limiteDiario: this.limiteDiario(),
+      usadosHoy: this.usadosHoyValor(),
+      restantesHoy: this.restantesHoy(),
+      estado: this.ultimoEstado,
+      ultimoError: this.ultimoError,
+      ultimoErrorFecha: this.ultimoErrorFecha,
+    };
+  }
+
+  private async registrarIntento(tipo: string, destinatario?: string): Promise<void> {
+    this.resetSiCambioDia();
+    this.usadosHoy++;
+    if (this.dataSource?.isInitialized) {
+      try {
+        await this.dataSource.query(
+          `INSERT INTO dbo.mail_envios (fecha, tipo, destinatario, estado) VALUES (GETDATE(), @0, @1, 'enviado')`,
+          [tipo, (destinatario || '').slice(0, 200)],
+        );
+      } catch {
+        /* noop */
+      }
+    }
+  }
+
+  // ===== Reintentos con backoff =====
+  private dormir(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private esTransitorio(err: unknown): boolean {
+    const e = err as { responseCode?: unknown; message?: unknown; code?: unknown };
+    if (!e) return false;
+    const code = e.responseCode;
+    if (typeof code === 'number') return code >= 400 && code < 500;
+    const msg = String(e.message ?? e.code ?? '').toLowerCase();
+    return /timeout|econn|esocket|enotfound|socket|temporar|too many|rate|eai_|eagain/.test(
+      msg,
+    );
+  }
+
+  private textoError(err: unknown): string {
+    const e = err as { message?: unknown; code?: unknown; response?: unknown };
+    const msg = String(e?.message ?? '');
+    const code = (e as { responseCode?: unknown })?.responseCode;
+    return typeof code === 'number' ? `Código ${code}: ${msg}` : msg;
+  }
+
+  private clasificar(err: unknown): EstadoCorreo {
+    const e = err as { responseCode?: unknown; message?: unknown; code?: unknown };
+    const code = e?.responseCode;
+    const msg = String(e?.message ?? e?.code ?? '').toLowerCase();
+
+    // Error de autenticación: cuenta rechazada / bloqueada / clave de app inválida
+    if (
+      code === 535 ||
+      msg.includes('authentication') ||
+      msg.includes('invalid login') ||
+      msg.includes('credentials') ||
+      msg.includes('username and password') ||
+      msg.includes('auth')
+    ) {
+      return 'auth';
+    }
+    // Límite diario / cuota del proveedor (452 / 454 4.7.0 / too many messages)
+    if (
+      code === 452 ||
+      code === 454 ||
+      msg.includes('daily limit') ||
+      msg.includes('too many') ||
+      msg.includes('quota') ||
+      msg.includes('message rejected') ||
+      msg.includes('5.4.5') ||
+      msg.includes('5.2.1')
+    ) {
+      return 'cuota';
+    }
+    // Rechazo permanente (5xx): posible bloqueo por comportamiento sospechoso
+    if (typeof code === 'number' && code >= 500) return 'rechazado';
+    // Errores transitorios (4xx / red): posible throttling
+    if (this.esTransitorio(err)) return 'bloqueado';
+    return 'indisponible';
+  }
+
+  private async conReintentos(fn: () => Promise<void>): Promise<void> {
+    const intentos = 3;
+    let err: unknown;
+    for (let i = 0; i < intentos; i++) {
+      try {
+        await fn();
+        this.ultimoEstado = 'ok';
+        this.ultimoError = null;
+        this.ultimoErrorFecha = null;
+        return;
+      } catch (e) {
+        err = e;
+        if (!this.esTransitorio(e) || i === intentos - 1) break;
+        await this.dormir(1000 * 2 ** i);
+      }
+    }
+    this.ultimoEstado = this.clasificar(err);
+    this.ultimoError = this.textoError(err);
+    this.ultimoErrorFecha = new Date().toISOString();
+    throw err;
+  }
+
   private mesLabel(periodo: string): string {
     const anio = periodo.slice(0, 4);
     const mesNum = Number(periodo.slice(4, 6));
@@ -59,6 +299,7 @@ export class MailService {
 
   async enviarBoleta(args: CorreoBoletaArgs): Promise<boolean> {
     if (!this.transporter) {
+      this.ultimoEstado = 'no_configurado';
       throw new Error(
         'Correo no configurado: define SMTP_HOST, SMTP_USER y SMTP_PASS en backend/.env',
       );
@@ -80,17 +321,21 @@ export class MailService {
         </div>
       </div>`;
 
-    await this.transporter.sendMail({
-      from: this.desde(),
-      to: args.destinatario,
-      subject: `Boleta de Pago — ${mesLabel}`,
-      html,
+    await this.registrarIntento('boleta', args.destinatario);
+    await this.conReintentos(async () => {
+      await this.transporter!.sendMail({
+        from: this.desde(),
+        to: args.destinatario,
+        subject: `Boleta de Pago — ${mesLabel}`,
+        html,
+      });
     });
     return true;
   }
 
   async enviarBoletaFirmada(args: CorreoBoletaFirmadaArgs): Promise<boolean> {
     if (!this.transporter) {
+      this.ultimoEstado = 'no_configurado';
       throw new Error(
         'Correo no configurado: define SMTP_HOST, SMTP_USER y SMTP_PASS en backend/.env',
       );
@@ -121,18 +366,21 @@ export class MailService {
         </div>
       </div>`;
 
-    await this.transporter.sendMail({
-      from: this.desde(),
-      to: args.destinatario,
-      subject: `Confirmación de firma — Boleta de Pago ${mesLabel}`,
-      html,
-      attachments: [
-        {
-          filename: nombreArchivo,
-          content: Buffer.from(args.pdfBuffer),
-          contentType: 'application/pdf',
-        },
-      ],
+    await this.registrarIntento('boleta_firmada', args.destinatario);
+    await this.conReintentos(async () => {
+      await this.transporter!.sendMail({
+        from: this.desde(),
+        to: args.destinatario,
+        subject: `Confirmación de firma — Boleta de Pago ${mesLabel}`,
+        html,
+        attachments: [
+          {
+            filename: nombreArchivo,
+            content: Buffer.from(args.pdfBuffer),
+            contentType: 'application/pdf',
+          },
+        ],
+      });
     });
     return true;
   }

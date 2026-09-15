@@ -1,19 +1,65 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { MailService } from '../mail/mail.service';
 import { WorkersService } from '../workers/workers.service';
 import { PdfService } from '../pdf/pdf.service';
 import { AuditoriaService, type ActorAuditoria } from '../auditoria/auditoria.service';
+import { EventBusService } from '../events/event-bus.service';
 import { Boleta } from './boleta.entity';
 import { CreateBoletaDto } from './dto/create-boleta.dto';
 
+interface CachéPorArea {
+  data: PorAreaData;
+  expira: number;
+}
+
+export interface PorAreaItem {
+  id: number;
+  periodo: string;
+  anio: number;
+  mes: number;
+  estado: string;
+  emailEnviado: boolean;
+  [k: string]: unknown;
+}
+
+export interface PorAreaGrupo {
+  area: string;
+  total: number;
+  firmadas: number;
+  pendientes: number;
+  sinCorreo: number;
+  boletas: PorAreaItem[];
+}
+
+export interface PeriodoInfo {
+  anio: number;
+  mes: number;
+  esCerrado: boolean;
+  esEnCurso: boolean;
+  esFuturo: boolean;
+  estadoTexto: string;
+}
+
+export interface PorAreaData {
+  total: number;
+  areas: PorAreaGrupo[];
+  periodoInfo?: PeriodoInfo;
+}
+
 @Injectable()
-export class BoletasService {
+export class BoletasService implements OnModuleInit {
+  // Caché en memoria del endpoint por-area: evita el viaje a la BD en cada
+  // consulta del panel. Al firmar se actualiza en memoria (sin tocar la BD)
+  // para que el estado FIRMADA se refleje al instante (~ms).
+  private cachéPorArea = new Map<string, CachéPorArea>();
+  private readonly TTL_POR_AREA = 15_000;
+
   constructor(
     @InjectRepository(Boleta) private readonly repo: Repository<Boleta>,
     private readonly workers: WorkersService,
@@ -21,7 +67,44 @@ export class BoletasService {
     private readonly mail: MailService,
     private readonly config: ConfigService,
     private readonly auditoria: AuditoriaService,
+    private readonly events: EventBusService,
   ) {}
+
+  onModuleInit() {
+    // Al firmar una boleta, actualiza en memoria (sin BD) la boleta afectada
+    // para que el panel refleje el estado FIRMADA al instante.
+    this.events.on('boleta.firmada', (payload: { boletaId?: number }) => {
+      if (payload && typeof payload.boletaId === 'number') {
+        this.actualizarCachePorFirma(payload.boletaId);
+      }
+    });
+  }
+
+  /** Marca como FIRMADA una boleta en la caché y recalcula los conteos, sin consultar la BD. */
+  private actualizarCachePorFirma(boletaId: number) {
+    const ahora = Date.now();
+    for (const [clave, cache] of this.cachéPorArea) {
+      if (cache.expira <= ahora) {
+        this.cachéPorArea.delete(clave);
+        continue;
+      }
+      let cambiado = false;
+      for (const area of cache.data.areas) {
+        const item = area.boletas.find((b) => b.id === boletaId);
+        if (item && item.estado !== 'FIRMADA') {
+          item.estado = 'FIRMADA';
+          cambiado = true;
+        }
+      }
+      if (cambiado) {
+        for (const area of cache.data.areas) {
+          area.firmadas = area.boletas.filter((x) => x.estado === 'FIRMADA').length;
+          area.pendientes = area.boletas.filter((x) => x.estado === 'PENDIENTE').length;
+        }
+        cache.data.total = cache.data.areas.reduce((s, a) => s + a.boletas.length, 0);
+      }
+    }
+  }
 
   async auditar(
     accion: string,
@@ -80,8 +163,9 @@ export class BoletasService {
   }
 
   private conUrls(boleta: Boleta) {
+    const { firmaPng: _firmaPng, detalleJson: _detalleJson, ...resto } = boleta;
     return {
-      ...boleta,
+      ...resto,
       detalle: this.leerDetalle(boleta),
       urlFirma: boleta.tokenFirma
         ? `${this.frontUrl()}/firmar/${boleta.tokenFirma}`
@@ -96,6 +180,7 @@ export class BoletasService {
     dto: CreateBoletaDto,
     actor?: ActorAuditoria,
   ) {
+    this.cachéPorArea.clear();
     await this.workers.findOne(dto.trabajadorId);
 
     const periodo = dto.periodo;
@@ -199,14 +284,22 @@ export class BoletasService {
   }
 
   async resumen(query: { anio?: string; mes?: string }) {
-    const qb = this.repo.createQueryBuilder('b');
+    const qb = this.repo
+      .createQueryBuilder('b')
+      .select('b.estado', 'estado')
+      .addSelect('COUNT(*)', 'n');
     if (query.anio) qb.andWhere('b.anio = :anio', { anio: Number(query.anio) });
     if (query.mes) qb.andWhere('b.mes = :mes', { mes: Number(query.mes) });
-    const todas = await qb.getMany();
+    qb.groupBy('b.estado');
+
+    const rows = await qb.getRawMany<{ estado: string; n: string }>();
+    const contar = (estado: string) =>
+      Number(rows.find((r) => r.estado === estado)?.n ?? 0);
+
     return {
-      total: todas.length,
-      firmadas: todas.filter((b) => b.estado === 'FIRMADA').length,
-      pendientes: todas.filter((b) => b.estado === 'PENDIENTE').length,
+      total: rows.reduce((sum, r) => sum + Number(r.n), 0),
+      firmadas: contar('FIRMADA'),
+      pendientes: contar('PENDIENTE'),
     };
   }
 
@@ -287,46 +380,141 @@ export class BoletasService {
   }
 
   async porArea(query: { anio?: string; mes?: string; soloPendientes?: string }) {
+    const clave = `${query.anio ?? ''}-${query.mes ?? ''}-${query.soloPendientes ?? ''}`;
+    const ahora = Date.now();
+    const cache = this.cachéPorArea.get(clave);
+    if (cache && cache.expira > ahora) {
+      return cache.data;
+    }
+
+    // Consulta ligera: excluye detalle_json y firma_png (payloads grandes).
+    // El detalle completo se obtiene por boleta con GET /boletas/:id.
     const qb = this.repo
       .createQueryBuilder('b')
-      .leftJoinAndSelect('b.trabajador', 't')
-      .addOrderBy('t.area', 'ASC')
-      .addOrderBy('t.apellido_paterno', 'ASC')
-      .addOrderBy('t.apellido_materno', 'ASC');
+      .leftJoin('b.trabajador', 't')
+      .select('b.id', 'id')
+      .addSelect('b.periodo', 'periodo')
+      .addSelect('b.anio', 'anio')
+      .addSelect('b.mes', 'mes')
+      .addSelect('b.estado', 'estado')
+      .addSelect('b.emailEnviado', 'emailEnviado')
+      .addSelect('b.tokenFirma', 'tokenFirma')
+      .addSelect('b.tokenVer', 'tokenVer')
+      .addSelect('b.firmaExpira', 'firmaExpira')
+      .addSelect('t.id', 'trabajadorId')
+      .addSelect('t.dni', 'dni')
+      .addSelect('t.nombres', 'nombres')
+      .addSelect('t.apellidoPaterno', 'apPaterno')
+      .addSelect('t.apellidoMaterno', 'apMaterno')
+      .addSelect('t.area', 'area')
+      .addSelect('t.email', 'email');
 
     if (query.anio) qb.andWhere('b.anio = :anio', { anio: Number(query.anio) });
     if (query.mes) qb.andWhere('b.mes = :mes', { mes: Number(query.mes) });
     if (query.soloPendientes === '1') {
       qb.andWhere('b.emailEnviado = :enviado', { enviado: false });
     }
+    qb.addOrderBy('t.area', 'ASC')
+      .addOrderBy('t.apellidoPaterno', 'ASC')
+      .addOrderBy('t.apellidoMaterno', 'ASC');
 
-    const boletas = await qb.getMany();
+    const rows = await qb.getRawMany<{
+      id: number;
+      periodo: string;
+      anio: number;
+      mes: number;
+      estado: string;
+      emailEnviado: boolean;
+      tokenFirma: string | null;
+      tokenVer: string | null;
+      firmaExpira: Date | null;
+      trabajadorId: number;
+      dni: string;
+      nombres: string;
+      apPaterno: string | null;
+      apMaterno: string | null;
+      area: string | null;
+      email: string | null;
+    }>();
 
-    const grupos = new Map<string, Boleta[]>();
-    for (const b of boletas) {
-      const area = (b.trabajador.area || '').trim() || 'Sin área';
+    const front = this.frontUrl();
+    const items = rows.map((r) => ({
+      id: r.id,
+      periodo: r.periodo,
+      anio: r.anio,
+      mes: r.mes,
+      estado: r.estado,
+      emailEnviado: !!r.emailEnviado,
+      tokenFirma: r.tokenFirma,
+      tokenVer: r.tokenVer,
+      firmaExpira: r.firmaExpira,
+      trabajador: {
+        id: r.trabajadorId,
+        dni: r.dni,
+        email: (r.email || '').trim(),
+        area: (r.area || '').trim(),
+        nombreCompleto:
+          `${r.apPaterno || ''} ${r.apMaterno || ''} ${r.nombres || ''}`.trim(),
+      },
+      urlFirma: r.tokenFirma ? `${front}/firmar/${r.tokenFirma}` : null,
+      urlVer: r.tokenVer ? `${front}/ver/${r.tokenVer}` : null,
+    }));
+
+    const grupos = new Map<string, typeof items>();
+    for (const it of items) {
+      const area = it.trabajador.area || 'Sin área';
       if (!grupos.has(area)) grupos.set(area, []);
-      grupos.get(area)!.push(b);
+      grupos.get(area)!.push(it);
     }
 
     const areas = Array.from(grupos.entries())
       .map(([area, lista]) => ({
         area,
         total: lista.length,
-        firmadas: lista.filter((b) => b.estado === 'FIRMADA').length,
-        pendientes: lista.filter((b) => b.estado === 'PENDIENTE').length,
-        sinCorreo: lista.filter((b) => !b.emailEnviado).length,
-        boletas: lista.map((b) => this.conUrls(b)),
+        firmadas: lista.filter((x) => x.estado === 'FIRMADA').length,
+        pendientes: lista.filter((x) => x.estado === 'PENDIENTE').length,
+        sinCorreo: lista.filter((x) => !x.emailEnviado).length,
+        boletas: lista,
       }))
-      .sort((a, b) => a.area.localeCompare(b.area));
+    const hoy = new Date();
+    const hoyAnio = hoy.getFullYear();
+    const hoyMes = hoy.getMonth() + 1;
+    const qAnio = Number(query.anio) || hoyAnio;
+    const qMes = Number(query.mes) || hoyMes;
 
-    return { total: boletas.length, areas };
+    const esCerrado = qAnio < hoyAnio || (qAnio === hoyAnio && qMes < hoyMes);
+    const esEnCurso = qAnio === hoyAnio && qMes === hoyMes;
+    const esFuturo = qAnio > hoyAnio || (qAnio === hoyAnio && qMes > hoyMes);
+    const estadoTexto = esCerrado
+      ? 'Período cerrado'
+      : esEnCurso
+        ? 'Período en curso – envío masivo bloqueado'
+        : 'Período futuro – envío masivo bloqueado';
+
+    const periodoInfo: PeriodoInfo = {
+      anio: qAnio,
+      mes: qMes,
+      esCerrado,
+      esEnCurso,
+      esFuturo,
+      estadoTexto,
+    };
+
+    const resultado: PorAreaData = { total: items.length, areas, periodoInfo };
+
+    this.cachéPorArea.set(clave, {
+      data: resultado,
+      expira: ahora + this.TTL_POR_AREA,
+    });
+
+    return resultado;
   }
 
   async marcarEmailEnviado(
     id: number,
     actor?: ActorAuditoria,
   ) {
+    this.cachéPorArea.clear();
     const boleta = await this.repo.findOne({ where: { id } });
     if (!boleta) throw new NotFoundException('Boleta no encontrada');
     boleta.emailEnviado = true;
@@ -349,6 +537,7 @@ export class BoletasService {
     id: number,
     actor?: ActorAuditoria,
   ) {
+    this.cachéPorArea.clear();
     const boleta = await this.repo.findOne({
       where: { id },
       relations: { trabajador: true },
@@ -398,6 +587,7 @@ export class BoletasService {
     id: number,
     actor?: ActorAuditoria,
   ) {
+    this.cachéPorArea.clear();
     const boleta = await this.repo.findOne({
       where: { id },
       relations: { trabajador: true },
@@ -458,24 +648,72 @@ export class BoletasService {
     ids: number[],
     actor?: ActorAuditoria,
   ) {
+    if (!ids || ids.length === 0) {
+      throw new BadRequestException('No se seleccionaron boletas para enviar');
+    }
+
+    const boletasAEnviar = await this.repo.find({
+      where: { id: In(ids) },
+      relations: { trabajador: true },
+    });
+
+    if (boletasAEnviar.length === 0) {
+      throw new NotFoundException('No se encontraron las boletas solicitadas');
+    }
+
+    // Regla de negocio: El período actual permanece bloqueado para el envío masivo hasta que finalice el mes.
+    const hoy = new Date();
+    const hoyAnio = hoy.getFullYear();
+    const hoyMes = hoy.getMonth() + 1;
+
+    for (const b of boletasAEnviar) {
+      const esPeriodoCerrado =
+        b.anio < hoyAnio || (b.anio === hoyAnio && b.mes < hoyMes);
+
+      if (!esPeriodoCerrado) {
+        const esEnCurso = b.anio === hoyAnio && b.mes === hoyMes;
+        const msg = esEnCurso
+          ? `El período actual (${b.periodo}) está en curso. El envío masivo está bloqueado hasta que finalice el mes.`
+          : `El período (${b.periodo}) no está cerrado. El envío masivo está bloqueado.`;
+        throw new BadRequestException(msg);
+      }
+    }
+
+    this.cachéPorArea.clear();
+    await this.mail.sincronizarDesdeBd();
+    const delayMs = Math.max(
+      0,
+      Number(this.config.get<string>('SMTP_DELAY_MS', '1500')),
+    );
+    const inicio = Date.now();
     let enviados = 0;
     let sinEmail = 0;
     let yaEnviados = 0;
     let errores = 0;
+    let topeAlcanzado = false;
     const sinEmailDetalle: { nombre: string; area: string }[] = [];
+    const erroresDetalle: { nombre: string; periodo: string; motivo: string }[] = [];
+    const boletaMap = new Map(boletasAEnviar.map((b) => [b.id, b]));
 
     for (const id of ids) {
-      const boleta = await this.repo.findOne({
-        where: { id },
-        relations: { trabajador: true },
-      });
+      if (this.mail.restantesHoy() <= 0) {
+        topeAlcanzado = true;
+        break;
+      }
+      const boleta = boletaMap.get(id);
       if (!boleta) {
         errores++;
         continue;
       }
-      if (boleta.emailEnviado) {
-        yaEnviados++;
-        continue;
+      // Si el enlace ya venció, se genera un token nuevo (enlace fresco), igual que el envío individual.
+      const vencido =
+        boleta.estado !== 'FIRMADA' &&
+        !!boleta.firmaExpira &&
+        boleta.firmaExpira.getTime() < Date.now();
+      if (vencido) {
+        boleta.tokenFirma = this.generarToken();
+        boleta.firmaExpira = this.fechaExpiracion();
+        await this.repo.save(boleta);
       }
       const email = (boleta.trabajador.email || '').trim();
       if (!email) {
@@ -502,10 +740,19 @@ export class BoletasService {
         boleta.fechaEmail = new Date();
         await this.repo.save(boleta);
         enviados++;
-      } catch {
+      } catch (e) {
         errores++;
+        erroresDetalle.push({
+          nombre: boleta.trabajador.nombreCompleto,
+          periodo: boleta.periodo,
+          motivo: (e as Error).message,
+        });
       }
+      if (delayMs > 0) await this.dormir(delayMs);
     }
+
+    const duracionSeg = Math.round((Date.now() - inicio) / 1000);
+    const estadoCorreo = await this.mail.estadoCorreo();
 
     await this.auditar(
       'envio_masivo',
@@ -518,6 +765,9 @@ export class BoletasService {
         sinEmail,
         yaEnviados,
         errores,
+        topeAlcanzado,
+        usadosHoy: estadoCorreo.usadosHoy,
+        restantesHoy: estadoCorreo.restantesHoy,
       }),
     );
 
@@ -528,7 +778,24 @@ export class BoletasService {
       yaEnviados,
       errores,
       sinEmailDetalle,
+      erroresDetalle,
+      topeAlcanzado,
+      duracionSeg,
+      usadosHoy: estadoCorreo.usadosHoy,
+      restantesHoy: estadoCorreo.restantesHoy,
+      limiteDiario: estadoCorreo.limiteDiario,
+      smtpEstado: estadoCorreo.estado,
+      ultimoError: estadoCorreo.ultimoError,
+      ultimoErrorFecha: estadoCorreo.ultimoErrorFecha,
     };
+  }
+
+  async estadoCorreo() {
+    return this.mail.estadoCorreo();
+  }
+
+  private dormir(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   async exportarCsv(query: { anio?: string; mes?: string; soloPendientes?: string }) {
@@ -592,6 +859,7 @@ export class BoletasService {
     id: number,
     actor?: ActorAuditoria,
   ) {
+    this.cachéPorArea.clear();
     const boleta = await this.repo.findOne({ where: { id } });
     if (!boleta) throw new NotFoundException('Boleta no encontrada');
     if (boleta.rutaPdf) {
@@ -636,6 +904,20 @@ export class BoletasService {
     } catch {
       return { ingresos: [], descuentos: [], netoPagar: 0 };
     }
+  }
+
+  /** Nombre del trabajador tal como estaba al generar la boleta (snapshot). */
+  nombreTrabajador(boleta: Boleta): string {
+    const d = this.leerDetalle(boleta) as Record<string, unknown>;
+    return String(
+      d?.trabajadorNombre || boleta.trabajador?.nombreCompleto || '',
+    ).trim();
+  }
+
+  /** DNI del trabajador tal como estaba al generar la boleta (snapshot). */
+  dniTrabajador(boleta: Boleta): string {
+    const d = this.leerDetalle(boleta) as Record<string, unknown>;
+    return String(d?.dni || boleta.trabajador?.dni || '').trim();
   }
 
   existeArchivo(ruta: string): Promise<boolean> {
