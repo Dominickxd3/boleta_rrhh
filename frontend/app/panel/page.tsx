@@ -194,6 +194,11 @@ export default function Dashboard() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [refrescar, cargarGrafico]);
 
+  const totalEnviadas = useMemo(
+    () => porArea.total - porArea.areas.reduce((a, b) => a + b.sinCorreo, 0),
+    [porArea],
+  );
+
   const top5 = useMemo(
     () =>
       porArea.areas
@@ -264,9 +269,9 @@ export default function Dashboard() {
           </div>
           <div className="min-w-0">
             <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-              Total boletas
+              Total boletas enviadas
             </p>
-            <p className="text-3xl font-bold text-black">{resumen.total}</p>
+            <p className="text-3xl font-bold text-black">{totalEnviadas}</p>
           </div>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-5 flex items-center gap-4">
