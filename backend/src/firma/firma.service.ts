@@ -36,11 +36,17 @@ export class FirmaService {
   }
 
   private expirado(boleta: Boleta): boolean {
-    return (
-      boleta.estado !== 'FIRMADA' &&
-      !!boleta.firmaExpira &&
-      boleta.firmaExpira.getTime() < Date.now()
-    );
+    if (boleta.estado === 'FIRMADA') return false;
+    // Selección de fecha de expiración: si no hay firmaExpira, el fallback es fechaEmail + 72h.
+    let fechaExp = boleta.firmaExpira ? boleta.firmaExpira.getTime() : null;
+    if (!fechaExp && boleta.fechaEmail) {
+      const horas = Number(
+        this.config.get<string>('VALIDEZ_LINK_HORAS', '72') || '72',
+      );
+      fechaExp = new Date(boleta.fechaEmail).getTime() + horas * 3600000;
+    }
+    if (!fechaExp) return true; // no hay cómo evaluar → considerar vencido para seguridad
+    return fechaExp <= Date.now();
   }
 
   private validarExpirado(boleta: Boleta) {
